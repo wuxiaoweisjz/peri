@@ -21,8 +21,8 @@ description: >
 CLAUDE.md 已自动加载到上下文，无需重复读取。如有需要，额外并行执行：
 
 ```
-glob_files("**/Cargo.toml")          # 模块拓扑结构
-glob_files("spec/global/**/*.md")    # 如果存在，读取全局架构文档
+Glob("**/Cargo.toml")          # 模块拓扑结构
+Glob("spec/global/**/*.md")    # 如果存在，读取全局架构文档
 ```
 
 **阅读重点**：
@@ -61,7 +61,7 @@ glob_files("spec/global/**/*.md")    # 如果存在，读取全局架构文档
 
 ## 第三步：提问流程
 
-**使用 `ask_user_question` 工具**逐批交互式提问，每批最多 4 题，不要把题目作为文本段落输出。
+**使用 `AskUserQuestion` 工具**逐批交互式提问，每批最多 4 题，不要把题目作为文本段落输出。
 
 **题目形式**：
 
@@ -74,7 +74,7 @@ glob_files("spec/global/**/*.md")    # 如果存在，读取全局架构文档
 **调用示例**（每批 1–4 题，用一次工具调用）：
 
 ```
-ask_user_question({
+AskUserQuestion({
   questions: [
     {
       header: "第 1 题",
@@ -95,7 +95,7 @@ ask_user_question({
 **分批规则**：
 
 - 5–8 题时，按 4+余量 分两批；不超过 4 题时一批完成
-- 每批调用一次 `ask_user_question`，等待用户作答后再发下一批
+- 每批调用一次 `AskUserQuestion`，等待用户作答后再发下一批
 - 先告知用户总题数和分批情况（一句话即可），然后立即调用工具，不要在文本中把题目再列一遍
 
 ---
@@ -153,10 +153,10 @@ ask_user_question({
 建议：<下一步可以重点看哪部分文档或代码>
 ```
 
-总结输出后，用 `ask_user_question` 询问是否继续：
+总结输出后，用 `AskUserQuestion` 询问是否继续：
 
 ```
-ask_user_question({
+AskUserQuestion({
   questions: [
     {
       header: "继续？",

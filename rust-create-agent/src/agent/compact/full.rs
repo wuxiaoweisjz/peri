@@ -378,13 +378,13 @@ mod tests {
         let msgs = vec![BaseMessage::ai_with_tool_calls(
             MessageContent::text("thinking"),
             vec![
-                ToolCallRequest::new("tc1", "bash", json!({})),
-                ToolCallRequest::new("tc2", "read_file", json!({})),
+                ToolCallRequest::new("tc1", "Bash", json!({})),
+                ToolCallRequest::new("tc2", "Read", json!({})),
             ],
         )];
         let result = preprocess_messages(&msgs, 2000);
         assert_eq!(result.len(), 1);
-        assert!(result[0].contains("（调用了工具: bash, read_file）"));
+        assert!(result[0].contains("（调用了工具: Bash, Read）"));
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
             BaseMessage::ai("a1"),
             BaseMessage::ai_with_tool_calls(
                 MessageContent::text("using"),
-                vec![ToolCallRequest::new("tc1", "bash", json!({}))],
+                vec![ToolCallRequest::new("tc1", "Bash", json!({}))],
             ),
             BaseMessage::tool_result("tc1", "output"),
             BaseMessage::human("q2"),
@@ -554,7 +554,7 @@ mod tests {
                 MessageContent::text("using bash"),
                 vec![ToolCallRequest::new(
                     "tc1",
-                    "bash",
+                    "Bash",
                     json!({"command": "echo"}),
                 )],
             ),

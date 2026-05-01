@@ -3,6 +3,8 @@ pub mod highlight;
 
 use ratatui::{buffer::Buffer, layout::Rect, text::Line, widgets::Paragraph, widgets::Widget};
 
+use crate::theme::DarkTheme;
+
 pub use blocks::BlockRenderStrategy;
 
 pub struct MessageBlockState {
@@ -37,9 +39,10 @@ impl<'a> MessageBlockWidget<'a> {
 
 impl<'a> Widget for MessageBlockWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let theme = DarkTheme;
         let mut all_lines: Vec<Line<'_>> = Vec::new();
         for block in &self.state.blocks {
-            let lines = blocks::render_block(block, self.width);
+            let lines = blocks::render_block(block, self.width, &theme);
             all_lines.extend(lines);
         }
         Paragraph::new(all_lines).render(area, buf);

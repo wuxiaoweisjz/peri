@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::env;
 
 const DEFAULT_COMPACTABLE_TOOLS: &[&str] = &[
-    "bash",
-    "read_file",
-    "glob_files",
-    "search_files_rg",
-    "write_file",
-    "edit_file",
+    "Bash",
+    "Read",
+    "Glob",
+    "Grep",
+    "Write",
+    "Edit",
 ];
 
 fn default_true() -> bool {
@@ -152,10 +152,10 @@ mod tests {
         assert!((config.micro_compact_threshold - 0.70).abs() < 0.001);
         assert_eq!(config.micro_compact_stale_steps, 5);
         assert_eq!(config.micro_compactable_tools.len(), 6);
-        assert!(config.micro_compactable_tools.contains(&"bash".to_string()));
+        assert!(config.micro_compactable_tools.contains(&"Bash".to_string()));
         assert!(config
             .micro_compactable_tools
-            .contains(&"read_file".to_string()));
+            .contains(&"Read".to_string()));
         assert_eq!(config.summary_max_tokens, 16000);
         assert_eq!(config.re_inject_max_files, 5);
         assert_eq!(config.re_inject_max_tokens_per_file, 5000);
@@ -276,12 +276,12 @@ mod tests {
         assert_eq!(
             config.micro_compactable_tools,
             vec![
-                "bash".to_string(),
-                "read_file".to_string(),
-                "glob_files".to_string(),
-                "search_files_rg".to_string(),
-                "write_file".to_string(),
-                "edit_file".to_string(),
+                "Bash".to_string(),
+                "Read".to_string(),
+                "Glob".to_string(),
+                "Grep".to_string(),
+                "Write".to_string(),
+                "Edit".to_string(),
             ]
         );
     }

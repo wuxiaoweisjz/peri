@@ -63,7 +63,7 @@
 
 - **HITL 默认拦截清单:** `bash`、`write_*`、`edit_*`、`delete_*`、`rm_*`、`folder_operations`，需明确审批才执行
 - **API Key 安全:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 可通过环境变量或 `~/.zen-code/settings.json` 的 `env` 字段配置（用户目录配置文件已 gitignore）
-- **SubAgent 防递归:** `launch_agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
+- **SubAgent 防递归:** `Agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
 
 ---
 *最后更新: 2026-04-30 — 由 15 个 feature 归档批量更新*

@@ -1,58 +1,64 @@
-/// TUI 统一颜色主题（对应 TUI-STYLE.md 风格指南 v1.0）
+/// TUI 统一颜色主题（对齐 Claude Code Dark 配色方案）
 ///
-/// 设计哲学：极简锋利，单色制胜。
-/// 背景透明——不使用任何 bg() 颜色（弹窗光标行除外）。
-/// 信息层级只用亮度和 BOLD 区分，颜色只表达状态。
+/// 设计哲学：中性灰层级 + Claude 暖橙品牌色。
+/// 背景透明——不使用任何 bg() 颜色（弹窗光标行和用户消息区除外）。
+/// 信息层级用亮度区分（TEXT/MUTED/DIM），颜色表达状态语义。
 use ratatui::style::Color;
 
 // ── 强调色（单一主色）────────────────────────────────────────────────────────
 
-/// 橙红 — 唯一主交互色，激活边框/光标/关键操作，对应 #FF6B2B
-pub const ACCENT: Color = Color::Rgb(255, 107, 43);
+/// Claude 暖橙 — 唯一主交互色，品牌色 #D77757
+pub const ACCENT: Color = Color::Rgb(215, 119, 87);
 
 // ── 功能色 ───────────────────────────────────────────────────────────────────
 
-/// 哑光绿 — 成功/工具名/在线状态，对应 #6EB56A
-pub const SAGE: Color = Color::Rgb(110, 181, 106);
+/// 明亮绿 — 成功/工具名/在线状态 #4EBA65
+pub const SAGE: Color = Color::Rgb(78, 186, 101);
 
-/// 暖米灰 — 次要强调（标题、工具名、快捷键），对应 #B09878
-pub const WARNING: Color = Color::Rgb(176, 152, 120);
+/// 明亮琥珀 — 次要强调/警告 #FFC107
+pub const WARNING: Color = Color::Rgb(255, 193, 7);
 
-/// 暗红 — 错误/拒绝，对应 #CC463E
-pub const ERROR: Color = Color::Rgb(204, 70, 62);
+/// 明亮红 — 错误/拒绝 #FF6B80
+pub const ERROR: Color = Color::Rgb(255, 107, 128);
 
-/// 亮紫罗兰 — 推理/CoT 思考内容，对应 #A78BFA
-pub const THINKING: Color = Color::Rgb(167, 139, 250);
+/// 电光紫 — 推理/CoT 思考内容 #AF87FF
+pub const THINKING: Color = Color::Rgb(175, 135, 255);
 
 // ── 文字层级（三级亮度）──────────────────────────────────────────────────────
 
-/// 主文字 — 需要立即看到的内容，对应 #DACED0（冷白偏暖）
-pub const TEXT: Color = Color::Rgb(218, 206, 208);
+/// 纯白 — 主文字 #FFFFFF
+pub const TEXT: Color = Color::Rgb(255, 255, 255);
 
-/// 次要文字 — 标签、路径、辅助信息，对应 #8C7D78
-pub const MUTED: Color = Color::Rgb(140, 125, 120);
+/// 浅灰 — 标签/路径/辅助信息 #999999
+pub const MUTED: Color = Color::Rgb(153, 153, 153);
 
-/// 极弱文字 — 占位、已完成项、分隔符，对应 #483E3A
-pub const DIM: Color = Color::Rgb(72, 62, 58);
+/// 深灰 — 占位/已完成项/分隔符 #505050
+pub const DIM: Color = Color::Rgb(80, 80, 80);
 
 // ── 边框 ─────────────────────────────────────────────────────────────────────
 
-/// 空闲边框 — 极低对比，只做功能性分隔，对应 #302620
-pub const BORDER: Color = Color::Rgb(48, 38, 32);
+/// 中性灰 — 空闲边框 #505050
+pub const BORDER: Color = Color::Rgb(80, 80, 80);
 
 /// 激活边框 — 输入框/当前 panel focus 状态
 pub const BORDER_ACTIVE: Color = ACCENT;
 
 // ── 弹窗专用 ─────────────────────────────────────────────────────────────────
 
-/// 弹窗底色（Clear 后的背景），对应 #0A0806
-pub const POPUP_BG: Color = Color::Rgb(10, 8, 6);
+/// 纯黑 — 弹窗底色 #000000
+pub const POPUP_BG: Color = Color::Rgb(0, 0, 0);
 
-/// 光标行背景（列表选中行），对应 #261608
-pub const CURSOR_BG: Color = Color::Rgb(38, 22, 10);
+/// 中性暗灰 — 光标行背景（列表选中行）#262626
+pub const CURSOR_BG: Color = Color::Rgb(38, 38, 38);
 
-/// Loading 专用色 — 电光青，对应 #22D3EE，在暗色终端最显眼
-pub const LOADING: Color = Color::Rgb(34, 211, 238);
+/// 浅蓝紫 — Loading/Spinner 专用 #93A5FF
+pub const LOADING: Color = Color::Rgb(147, 165, 255);
+
+/// 用户消息背景色 #373737（Claude userMessageBackground）
+pub const USER_BG: Color = Color::Rgb(55, 55, 55);
+
+/// Bash 工具调用边框色 #FD5DB1（Claude bashBorder）
+pub const BASH_BORDER: Color = Color::Rgb(253, 93, 177);
 
 // ── 语义别名 ─────────────────────────────────────────────────────────────────
 

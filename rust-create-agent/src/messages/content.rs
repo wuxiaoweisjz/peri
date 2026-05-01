@@ -492,12 +492,12 @@ mod tests {
     fn test_tool_use_blocks_consistency_with_has_tool_use() {
         // Blocks 变体
         let mc = MessageContent::Blocks(vec![
-            ContentBlock::tool_use("id1", "bash", serde_json::json!({"cmd": "ls"})),
+            ContentBlock::tool_use("id1", "Bash", serde_json::json!({"cmd": "ls"})),
             ContentBlock::text("text"),
         ]);
         assert!(mc.has_tool_use());
         assert_eq!(mc.tool_use_blocks().len(), 1);
-        assert_eq!(mc.tool_use_blocks()[0].1, "bash");
+        assert_eq!(mc.tool_use_blocks()[0].1, "Bash");
 
         // Text 变体 — 无工具调用
         let mc = MessageContent::text("plain text");
@@ -507,7 +507,7 @@ mod tests {
         // Raw 变体 — 含 tool_use
         let mc = MessageContent::Raw(vec![
             serde_json::json!({"type": "text", "text": "calling"}),
-            serde_json::json!({"type": "tool_use", "id": "tc1", "name": "read_file", "input": {"path": "a.rs"}}),
+            serde_json::json!({"type": "tool_use", "id": "tc1", "name": "Read", "input": {"path": "a.rs"}}),
         ]);
         assert!(
             mc.has_tool_use(),
@@ -563,7 +563,7 @@ mod tests {
                 },
                 title: Some("My Doc".into()),
             },
-            ContentBlock::tool_use("id1", "bash", serde_json::json!({"cmd": "ls"})),
+            ContentBlock::tool_use("id1", "Bash", serde_json::json!({"cmd": "ls"})),
             ContentBlock::tool_result("id1", vec![ContentBlock::text("output")], false),
             ContentBlock::reasoning_with_signature("think", "sig123"),
             ContentBlock::Unknown(serde_json::json!({"type": "custom_block", "value": 42})),

@@ -15,7 +15,7 @@ cargo run -p rust-agent-tui
 - **`AGENTS.md` / `CLAUDE.md`** — 项目指引文件自动注入 System Prompt
 - **`ask_user` 协议** — 标准问答交互，单选/多选/自定义输入
 - **HITL 审批** — 敏感操作强制拦截，支持 Approve / Edit / Reject / Respond
-- **`launch_agent`** — 把复杂任务拆给专门的子 Agent，防递归，工具集可精确控制
+- **`Agent`** — 把复杂任务拆给专门的子 Agent，防递归，工具集可精确控制
 
 ## 核心能力
 

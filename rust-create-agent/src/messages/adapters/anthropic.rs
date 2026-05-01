@@ -310,7 +310,7 @@ mod tests {
                 "",
                 vec![ToolCallRequest::new(
                     "tc1",
-                    "bash",
+                    "Bash",
                     json!({"command": "ls"}),
                 )],
             ),
@@ -346,12 +346,12 @@ mod tests {
             "role": "assistant",
             "content": [
                 { "type": "text", "text": "I'll run bash" },
-                { "type": "tool_use", "id": "tc1", "name": "bash", "input": {"command": "ls"} }
+                { "type": "tool_use", "id": "tc1", "name": "Bash", "input": {"command": "ls"} }
             ]
         });
         let msg = AnthropicAdapter::to_base_message(&val).unwrap();
         assert!(msg.has_tool_calls());
-        assert_eq!(msg.tool_calls()[0].name, "bash");
+        assert_eq!(msg.tool_calls()[0].name, "Bash");
     }
 
     #[test]
@@ -370,7 +370,7 @@ mod tests {
         // 构造包含工具调用的 AI 消息（模拟 LLM 响应解析后的内部状态）
         let original = BaseMessage::ai_from_blocks(vec![
             ContentBlock::text("I'll run bash"),
-            ContentBlock::tool_use("tc1", "bash", json!({"command": "ls"})),
+            ContentBlock::tool_use("tc1", "Bash", json!({"command": "ls"})),
         ]);
         assert!(original.has_tool_calls());
         assert_eq!(original.tool_calls().len(), 1);
@@ -391,7 +391,7 @@ mod tests {
         assert!(restored.has_tool_calls(), "反序列化后 tool_calls 应保留");
         assert_eq!(restored.tool_calls().len(), 1);
         assert_eq!(restored.tool_calls()[0].id, "tc1");
-        assert_eq!(restored.tool_calls()[0].name, "bash");
+        assert_eq!(restored.tool_calls()[0].name, "Bash");
 
         // content blocks 中也应有 ToolUse（双写一致性验证）
         let content_has_tool_use = restored
@@ -408,7 +408,7 @@ mod tests {
             "I'll run bash",
             vec![ToolCallRequest::new(
                 "tc2",
-                "bash",
+                "Bash",
                 json!({"command": "pwd"}),
             )],
         );

@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::Paragraph,
     Frame,
@@ -20,10 +20,10 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
     let inner = BorderedPanel::new(Span::styled(
         " /model — 模型选择 ",
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme::MUTED)
             .add_modifier(Modifier::BOLD),
     ))
-    .border_style(Style::default().fg(theme::ACCENT))
+    .border_style(Style::default().fg(theme::MUTED))
     .render(f, area);
 
     let active_alias = app
@@ -83,10 +83,10 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
             .unwrap_or("");
 
         let bullet = if is_active { "●" } else { "○" };
-        let cursor_char = if is_cursor { "▶" } else { " " };
+        let cursor_char = if is_cursor { "❯" } else { " " };
 
         let row_style = if is_cursor {
-            Style::default().fg(Color::White).bg(theme::ACCENT)
+            Style::default().fg(theme::THINKING)
         } else if is_active {
             Style::default().fg(theme::ACCENT)
         } else {
@@ -102,7 +102,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 model_name.to_string(),
                 row_style.fg(if is_cursor {
-                    Color::White
+                    theme::THINKING
                 } else {
                     theme::MUTED
                 }),
@@ -121,7 +121,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
             panel.buf_thinking_budget.clone()
         };
         let row_style = if is_cursor {
-            Style::default().fg(Color::White).bg(theme::ACCENT)
+            Style::default().fg(theme::THINKING)
         } else {
             Style::default().fg(theme::TEXT)
         };
@@ -132,11 +132,11 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         };
 
         lines.push(Line::from(vec![
-            Span::styled(if is_cursor { " ▶   " } else { "     " }, row_style),
+            Span::styled(if is_cursor { " ❯   " } else { "     " }, row_style),
             Span::styled(
                 format!("{} ", dot),
                 if is_cursor {
-                    Style::default().fg(dot_color).bg(theme::ACCENT)
+                    Style::default().fg(dot_color)
                 } else {
                     Style::default().fg(dot_color)
                 },
@@ -145,7 +145,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 format!("   budget: {}", budget_display),
                 if is_cursor {
-                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                    Style::default().fg(theme::THINKING)
                 } else {
                     Style::default().fg(theme::TEXT)
                 },
@@ -162,7 +162,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
             theme::MUTED
         };
         let effort_style = if is_cursor {
-            Style::default().fg(effort_color).bg(theme::ACCENT)
+            Style::default().fg(effort_color)
         } else {
             Style::default().fg(effort_color)
         };
@@ -172,7 +172,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 "   effort: ",
                 if is_cursor {
-                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                    Style::default().fg(theme::THINKING)
                 } else {
                     Style::default().fg(theme::TEXT)
                 },
@@ -201,8 +201,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
         let is_cursor = panel.cursor == ROW_LOGIN;
         let row_style = if is_cursor {
             Style::default()
-                .fg(theme::WARNING)
-                .bg(theme::ACCENT)
+                .fg(theme::THINKING)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme::WARNING)
@@ -210,7 +209,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
 
         lines.push(Line::from(vec![
             Span::styled(
-                if is_cursor { " ▶   " } else { "     " },
+                if is_cursor { " ❯   " } else { "     " },
                 if is_cursor {
                     row_style
                 } else {
@@ -221,7 +220,7 @@ pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 "  管理 Provider…",
                 if is_cursor {
-                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                    Style::default().fg(theme::THINKING)
                 } else {
                     Style::default().fg(theme::MUTED)
                 },

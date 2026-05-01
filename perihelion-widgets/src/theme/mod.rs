@@ -46,4 +46,15 @@ pub trait Theme: Send + Sync + 'static {
     // ── 状态 ────────────────────────────────────────────────
     /// Loading 色（高辨识度状态指示）
     fn loading(&self) -> Color;
+
+    // ── 业务语义色 ──────────────────────────────────────────
+    /// 用户消息背景色
+    fn user_bg(&self) -> Color {
+        Color::Rgb(55, 55, 55)
+    }
+
+    /// Bash 工具边框色
+    fn bash_border(&self) -> Color {
+        Color::Rgb(253, 93, 177)
+    }
 }

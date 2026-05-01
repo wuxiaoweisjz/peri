@@ -529,12 +529,12 @@ impl MessageViewModel {
 ///
 /// | 类别 | 颜色 | 色值 |
 /// |------|------|------|
-/// | 读取/搜索 | SAGE | #6EB56A |
-/// | 写入/编辑 | WARNING | #B09878 |
-/// | 执行(bash) | MODEL_INFO | #A0825F |
-/// | 代理/交互 | THINKING | #A78BFA |
-/// | 错误 | ERROR | #CC463E |
-/// | 其他 | MUTED | #8C7D78 |
+/// | 读取/搜索 | SAGE | #4EBA65 |
+/// | 写入/编辑 | WARNING | #FFC107 |
+/// | 执行(bash) | BASH_BORDER | #FD5DB1 |
+/// | 代理/交互 | THINKING | #AF87FF |
+/// | 错误 | ERROR | #FF6B80 |
+/// | 其他 | MUTED | #999999 |
 pub fn tool_color(name: &str) -> Color {
     match name {
         // 读取/搜索 — 哑光绿
@@ -542,8 +542,8 @@ pub fn tool_color(name: &str) -> Color {
         // 写入/编辑 — 暖米灰
         "Write" | "Edit" | "folder_operations" | "delete_file" | "delete_folder"
         | "rm" | "rm_rf" => theme::WARNING,
-        // 执行 — 棕金
-        "Bash" => theme::MODEL_INFO,
+        // 执行 — Bash 粉红边框色
+        "Bash" => theme::BASH_BORDER,
         // 代理/交互 — 紫色
         "Agent" | "AskUserQuestion" | "TodoWrite" => theme::THINKING,
         // 错误
@@ -694,8 +694,8 @@ mod tests {
         // 写入/编辑 — WARNING
         assert_eq!(tool_color("Write"), theme::WARNING);
         assert_eq!(tool_color("Edit"), theme::WARNING);
-        // 执行 — MODEL_INFO
-        assert_eq!(tool_color("Bash"), theme::MODEL_INFO);
+        // 执行 — BASH_BORDER
+        assert_eq!(tool_color("Bash"), theme::BASH_BORDER);
         // 代理/交互 — THINKING
         assert_eq!(tool_color("Agent"), theme::THINKING);
         assert_eq!(tool_color("AskUserQuestion"), theme::THINKING);

@@ -234,12 +234,12 @@ mod tests {
     fn test_ai_from_blocks_extracts_tool_calls() {
         let blocks = vec![
             ContentBlock::text("I'll use a tool"),
-            ContentBlock::tool_use("id1", "bash", serde_json::json!({"command": "ls"})),
+            ContentBlock::tool_use("id1", "Bash", serde_json::json!({"command": "ls"})),
         ];
         let msg = BaseMessage::ai_from_blocks(blocks);
         assert!(msg.has_tool_calls());
         assert_eq!(msg.tool_calls().len(), 1);
-        assert_eq!(msg.tool_calls()[0].name, "bash");
+        assert_eq!(msg.tool_calls()[0].name, "Bash");
     }
 
     #[test]
@@ -288,7 +288,7 @@ mod tests {
             ContentBlock::text("I'll read a file"),
             ContentBlock::tool_use(
                 "toolu_123",
-                "read_file",
+                "Read",
                 serde_json::json!({"path": "test.txt"}),
             ),
         ];
@@ -298,7 +298,7 @@ mod tests {
         let tcs = ai_msg.tool_calls();
         assert_eq!(tcs.len(), 1);
         assert_eq!(tcs[0].id, "toolu_123");
-        assert_eq!(tcs[0].name, "read_file");
+        assert_eq!(tcs[0].name, "Read");
 
         // 序列化
         let json = serde_json::to_string(&ai_msg).unwrap();

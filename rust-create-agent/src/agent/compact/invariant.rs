@@ -149,7 +149,7 @@ mod tests {
     fn ai_with_tools(ids: &[&str]) -> BaseMessage {
         let tcs: Vec<ToolCallRequest> = ids
             .iter()
-            .map(|&id| ToolCallRequest::new(id, "bash", json!({"command": "echo"})))
+            .map(|&id| ToolCallRequest::new(id, "Bash", json!({"command": "echo"})))
             .collect();
         BaseMessage::ai_with_tool_calls(MessageContent::text("using tools"), tcs)
     }

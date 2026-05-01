@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     Frame,
 };
@@ -47,52 +47,23 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
 
     let mut lines: Vec<Line> = Vec::new();
 
-    // 工作目录 + 快捷键提示行
+    // 工作目录行
     lines.push(Line::from(vec![
         Span::styled(format!(" {} ", app.cwd), Style::default().fg(theme::DIM)),
-        Span::styled(
-            " ↑↓",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":移动 ", Style::default().fg(theme::MUTED)),
-        Span::styled(
-            "Enter",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":确认 ", Style::default().fg(theme::MUTED)),
-        Span::styled(
-            "Ctrl+D",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":删除 ", Style::default().fg(theme::MUTED)),
-        Span::styled(
-            "Esc",
-            Style::default()
-                .fg(theme::WARNING)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(":关闭", Style::default().fg(theme::MUTED)),
     ]));
 
     // 第 0 项：新建对话
     let is_new_cursor = browser.cursor == 0;
     lines.push(Line::from(vec![
         Span::styled(
-            if is_new_cursor { "▶ " } else { "  " },
+            if is_new_cursor { "❯ " } else { "  " },
             Style::default().fg(theme::ACCENT),
         ),
         Span::styled(
             "+ 新建对话",
             if is_new_cursor {
                 Style::default()
-                    .fg(Color::White)
-                    .bg(theme::ACCENT)
+                    .fg(theme::THINKING)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme::SAGE)
@@ -118,21 +89,21 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
         let count_label = format!("({})", meta.message_count);
         let current_tag = if is_current { "✓ " } else { "  " };
         let row_style = if is_cursor {
-            Style::default().fg(Color::White).bg(theme::ACCENT)
+            Style::default().fg(theme::THINKING)
         } else if is_current {
             Style::default().fg(theme::ACCENT)
         } else {
             Style::default().fg(theme::TEXT)
         };
         let count_style = if is_cursor {
-            Style::default().fg(Color::White).bg(theme::ACCENT)
+            Style::default().fg(theme::MUTED)
         } else {
             Style::default().fg(theme::MUTED)
         };
 
         lines.push(Line::from(vec![
             Span::styled(
-                if is_cursor { "▶ " } else { "  " },
+                if is_cursor { "❯ " } else { "  " },
                 Style::default().fg(theme::ACCENT),
             ),
             Span::styled(
@@ -180,6 +151,38 @@ pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
             Span::styled(":取消", Style::default().fg(theme::MUTED)),
         ]));
     }
+
+    // 底部快捷键提示
+    lines.push(Line::from(vec![
+        Span::styled(
+            " ↑↓",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":移动 ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            "Enter",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":确认 ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            "Ctrl+D",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":删除 ", Style::default().fg(theme::MUTED)),
+        Span::styled(
+            "Esc",
+            Style::default()
+                .fg(theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":关闭", Style::default().fg(theme::MUTED)),
+    ]));
 
     // 存储面板元数据供鼠标选区使用
     app.core.panel_area = Some(inner);

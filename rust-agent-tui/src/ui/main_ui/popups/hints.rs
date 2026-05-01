@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::Paragraph,
     Frame,
@@ -74,28 +74,22 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     // 命令候选行
     for (name, desc) in &cmd_show {
         let is_selected = selected == Some(i);
-        let bg = if is_selected {
-            theme::CURSOR_BG
-        } else {
-            Color::Reset
-        };
         let typed_len = prefix.len();
         let (matched, rest) = name.split_at(typed_len.min(name.len()));
         lines.push(Line::from(vec![
             Span::styled(
-                if is_selected { "▸ /" } else { "  /" },
-                Style::default().fg(theme::ACCENT).bg(bg),
+                if is_selected { "❯ /" } else { "  /" },
+                Style::default().fg(theme::ACCENT),
             ),
             Span::styled(
                 matched.to_string(),
                 Style::default()
                     .fg(theme::ACCENT)
-                    .bg(bg)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(rest.to_string(), Style::default().fg(theme::TEXT).bg(bg)),
-            Span::styled("  ", Style::default().bg(bg)),
-            Span::styled(desc.to_string(), Style::default().fg(theme::MUTED).bg(bg)),
+            Span::styled(rest.to_string(), Style::default().fg(if is_selected { theme::THINKING } else { theme::TEXT })),
+            Span::styled("  ", Style::default()),
+            Span::styled(desc.to_string(), Style::default().fg(theme::MUTED)),
         ]));
         i += 1;
     }
@@ -117,11 +111,6 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
 
         for skill in &skill_candidates {
             let is_selected = selected == Some(i);
-            let bg = if is_selected {
-                theme::CURSOR_BG
-            } else {
-                Color::Reset
-            };
             let name = &skill.name;
             if !prefix.is_empty() {
                 if let Some(pos) = name.find(prefix) {
@@ -130,22 +119,21 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
                     let after = &name[pos + prefix.len()..];
                     lines.push(Line::from(vec![
                         Span::styled(
-                            if is_selected { "▸ /" } else { "  /" },
-                            Style::default().fg(theme::ACCENT).bg(bg),
+                            if is_selected { "❯ /" } else { "  /" },
+                            Style::default().fg(theme::ACCENT),
                         ),
-                        Span::styled(before.to_string(), Style::default().fg(theme::TEXT).bg(bg)),
+                        Span::styled(before.to_string(), Style::default().fg(if is_selected { theme::THINKING } else { theme::TEXT })),
                         Span::styled(
                             matched.to_string(),
                             Style::default()
                                 .fg(theme::ACCENT)
-                                .bg(bg)
                                 .add_modifier(Modifier::BOLD),
                         ),
-                        Span::styled(after.to_string(), Style::default().fg(theme::TEXT).bg(bg)),
-                        Span::styled("  ", Style::default().bg(bg)),
+                        Span::styled(after.to_string(), Style::default().fg(if is_selected { theme::THINKING } else { theme::TEXT })),
+                        Span::styled("  ", Style::default()),
                         Span::styled(
                             skill.description.clone(),
-                            Style::default().fg(theme::MUTED).bg(bg),
+                            Style::default().fg(theme::MUTED),
                         ),
                     ]));
                     i += 1;
@@ -154,14 +142,14 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
             }
             lines.push(Line::from(vec![
                 Span::styled(
-                    if is_selected { "▸ /" } else { "  /" },
-                    Style::default().fg(theme::ACCENT).bg(bg),
+                    if is_selected { "❯ /" } else { "  /" },
+                    Style::default().fg(theme::ACCENT),
                 ),
-                Span::styled(name.clone(), Style::default().fg(theme::TEXT).bg(bg)),
-                Span::styled("  ", Style::default().bg(bg)),
+                Span::styled(name.clone(), Style::default().fg(if is_selected { theme::THINKING } else { theme::TEXT })),
+                Span::styled("  ", Style::default()),
                 Span::styled(
                     skill.description.clone(),
-                    Style::default().fg(theme::MUTED).bg(bg),
+                    Style::default().fg(theme::MUTED),
                 ),
             ]));
             i += 1;

@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::Paragraph,
     Frame,
@@ -56,10 +56,9 @@ fn render_step_provider(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect) {
         if is_active {
             (
                 Style::default()
-                    .fg(Color::White)
-                    .bg(theme::ACCENT)
+                    .fg(theme::THINKING)
                     .add_modifier(Modifier::BOLD),
-                Style::default().fg(Color::White).bg(theme::ACCENT),
+                Style::default().fg(theme::THINKING),
             )
         } else {
             (
@@ -218,10 +217,9 @@ fn render_step_model_alias(f: &mut Frame, wizard: &SetupWizardPanel, area: Rect)
         let (lbl_style, val_style) = if is_active {
             (
                 Style::default()
-                    .fg(Color::White)
-                    .bg(theme::ACCENT)
+                    .fg(theme::THINKING)
                     .add_modifier(Modifier::BOLD),
-                Style::default().fg(Color::White).bg(theme::ACCENT),
+                Style::default().fg(theme::THINKING),
             )
         } else {
             (

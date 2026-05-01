@@ -17,14 +17,14 @@
 
 ## 中间件（rust-agent-middlewares）
 
-- **FilesystemMiddleware:** 提供 `read_file`、`write_file`、`edit_file`、`glob_files`、`search_files_rg`、`folder_operations` 六个工具；只读工具无需 HITL
-- **TerminalMiddleware:** 提供 `bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）
+- **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep`、`folder_operations` 六个工具；只读工具无需 HITL
+- **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm/folder），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
-- **SubAgentMiddleware:** 提供 `launch_agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `launch_agent` 自身），返回格式含工具调用摘要
+- **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
 - **AgentsMdMiddleware:** `before_agent` 自动读取 `CLAUDE.md` / `AGENTS.md`，prepend System prompt
-- **TodoMiddleware:** `after_tool` 解析 `todo_write` 结果，推送 Todo 状态到渲染 channel
-- **AskUserTool:** `ask_user_question` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
+- **TodoMiddleware:** `after_tool` 解析 `TodoWrite` 结果，推送 Todo 状态到渲染 channel
+- **AskUserTool:** `AskUserQuestion` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
 - **Token 追踪:** TokenTracker 累积追踪 input/output/cache tokens，ContextBudget 上下文窗口预算管理
 - **Micro-compact:** 零 API 调用轻量压缩，可压缩工具白名单 + 时间衰减清除，图片/文档替换
 - **Full Compact:** 9 段结构化摘要模板，工具对完整性保护，PTL 降级重试
@@ -36,7 +36,7 @@
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/history` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** Opus/Sonnet/Haiku 三级别名，`/model` 三 Tab 面板，`/model <alias>` 快捷切换
 - **TUI 命令:** `/clear` 清空消息、`/help` 命令列表、`/compact` 上下文压缩
-- **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake read_file 工具调用序列）
+- **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
 - **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
 - **AskUser 弹窗:** `AskUserBatch` 事件触发问答弹窗，支持批量问题，单选/多选
 - **YOLO 模式:** `-y` 参数启动，自动 Approve 所有 HITL 请求（不影响 ask_user）

@@ -10,7 +10,7 @@ use crate::app::App;
 use crate::ui::theme;
 
 /// 浅色背景色（不影响整体终端背景，只在文字区域可见）
-const HEADER_BG: ratatui::style::Color = ratatui::style::Color::Rgb(74, 70, 66);
+const HEADER_BG: ratatui::style::Color = theme::USER_BG;
 
 /// 渲染 sticky human message header
 pub fn render_sticky_header(f: &mut Frame, app: &App, area: Rect) {

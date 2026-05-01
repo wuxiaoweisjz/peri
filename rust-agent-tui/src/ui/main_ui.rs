@@ -5,7 +5,7 @@ mod sticky_header;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
@@ -110,7 +110,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
         height: 1,
     };
     let prompt_style = Style::default()
-        .fg(Color::White)
+        .fg(theme::TEXT)
         .add_modifier(Modifier::BOLD);
     f.render_widget(Paragraph::new("❯").style(prompt_style), prompt_area);
     status_bar::render_status_bar(f, app, chunks[5]);
@@ -211,7 +211,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
             perihelion_widgets::spinner::animation::format_elapsed(app.spinner_state.elapsed_ms());
         let tokens = app.spinner_state.displayed_tokens();
 
-        let orange = Style::default().fg(Color::Rgb(255, 140, 0));
+        let orange = Style::default().fg(theme::ACCENT);
         let gray = Style::default().fg(theme::MUTED);
         let mut parts = vec![
             Span::styled(format!(" {} {}", frame, verb), orange),
@@ -289,9 +289,9 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
                     ),
                     TodoStatus::Completed => (
                         "  ✔  ",
-                        Style::default().fg(Color::Green),
+                        Style::default().fg(theme::SAGE),
                         Style::default()
-                            .fg(Color::Gray)
+                            .fg(theme::MUTED)
                             .add_modifier(Modifier::CROSSED_OUT),
                     ),
                     TodoStatus::Pending => (

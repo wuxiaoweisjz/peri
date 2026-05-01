@@ -51,9 +51,9 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
         };
 
         // 光标高亮
-        let cursor_indicator = if is_cursor { "▶ " } else { "  " };
+        let cursor_indicator = if is_cursor { "❯ " } else { "  " };
         let row_style = if is_cursor {
-            Style::default().bg(theme::CURSOR_BG)
+            Style::default()
         } else {
             Style::default()
         };
@@ -69,8 +69,7 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &App, area: Rect) {
             ),
             if is_cursor {
                 Style::default()
-                    .fg(status_color)
-                    .bg(theme::CURSOR_BG)
+                    .fg(theme::THINKING)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(status_color)

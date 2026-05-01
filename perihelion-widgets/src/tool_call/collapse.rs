@@ -1,8 +1,8 @@
 pub const READ_ONLY_TOOLS: &[&str] = &[
-    "read_file",
-    "glob_files",
-    "search_files_rg",
-    "ask_user_question",
+    "Read",
+    "Glob",
+    "Grep",
+    "AskUserQuestion",
 ];
 
 pub const MAX_RESULT_LINES: usize = 20;
@@ -23,13 +23,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_should_collapse_read_file() {
-        assert!(should_collapse_by_default("read_file"));
+    fn test_should_collapse_read() {
+        assert!(should_collapse_by_default("Read"));
     }
 
     #[test]
     fn test_should_not_collapse_bash() {
-        assert!(!should_collapse_by_default("bash"));
+        assert!(!should_collapse_by_default("Bash"));
     }
 
     #[test]

@@ -39,32 +39,32 @@ pub struct DefaultMarkdownTheme;
 
 impl MarkdownTheme for DefaultMarkdownTheme {
     fn heading(&self) -> Color {
-        Color::Rgb(200, 180, 150)
-    } // 提高亮度
+        Color::Rgb(255, 193, 7)
+    } // WARNING #FFC107
     fn text(&self) -> Color {
-        Color::Rgb(230, 220, 225)
-    } // 提高对比度
+        Color::Rgb(255, 255, 255)
+    } // TEXT #FFFFFF
     fn muted(&self) -> Color {
-        Color::Rgb(160, 145, 140)
-    } // 调整灰色调
+        Color::Rgb(153, 153, 153)
+    } // MUTED #999999
     fn code(&self) -> Color {
-        Color::Rgb(190, 170, 140)
-    } // 柔和黄色
+        Color::Rgb(215, 119, 87)
+    } // ACCENT #D77757
     fn link(&self) -> Color {
-        Color::Rgb(130, 200, 130)
-    } // 更鲜艳的绿色
+        Color::Rgb(78, 186, 101)
+    } // SAGE #4EBA65
     fn code_prefix(&self) -> Color {
-        Color::Rgb(130, 200, 130)
-    } // 与 link 一致
+        Color::Rgb(78, 186, 101)
+    } // SAGE #4EBA65
     fn quote_prefix(&self) -> Color {
-        Color::Rgb(160, 145, 140)
-    } // 与 muted 一致
+        Color::Rgb(153, 153, 153)
+    } // MUTED #999999
     fn list_bullet(&self) -> Color {
-        Color::Rgb(230, 220, 225)
-    } // 与 text 一致
+        Color::Rgb(255, 255, 255)
+    } // TEXT #FFFFFF
     fn separator(&self) -> Color {
-        Color::Rgb(160, 145, 140)
-    } // 与 muted 一致
+        Color::Rgb(153, 153, 153)
+    } // MUTED #999999
 }
 
 /// 解析 markdown 文本为 ratatui Text

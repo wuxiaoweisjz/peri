@@ -1,5 +1,6 @@
 use ratatui::text::Line;
 
+use crate::theme::Theme;
 use crate::tool_call::ToolCallState;
 
 #[derive(Debug, Clone)]
@@ -25,7 +26,7 @@ pub enum BlockRenderStrategy {
     },
 }
 
-pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'static>> {
+pub fn render_block(strategy: &BlockRenderStrategy, width: usize, theme: &dyn Theme) -> Vec<Line<'static>> {
     match strategy {
         BlockRenderStrategy::Text { content, .. } => {
             #[cfg(feature = "markdown")]
@@ -82,7 +83,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
                     crate::tool_call::display::format_args_summary(&state.args_summary, 40);
                 header_spans.push(ratatui::text::Span::styled(
                     format!("({})", summary),
-                    ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
+                    ratatui::style::Style::default().fg(theme.dim()),
                 ));
             }
             let mut lines: Vec<Line<'_>> = vec![Line::from(header_spans)];
@@ -91,7 +92,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
                     lines.push(Line::from(vec![
                         ratatui::text::Span::styled(
                             "  │ ".to_string(),
-                            ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
+                            ratatui::style::Style::default().fg(theme.dim()),
                         ),
                         ratatui::text::Span::raw(line.clone()),
                     ]));
@@ -99,7 +100,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
                 if let Some(omitted) = state.omitted_lines {
                     lines.push(Line::from(vec![ratatui::text::Span::styled(
                         format!("  … ({} more lines)", omitted),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
+                        ratatui::style::Style::default().fg(theme.dim()),
                     )]));
                 }
             }
@@ -115,7 +116,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
             let mut lines: Vec<Line<'_>> = vec![Line::from(vec![
                 ratatui::text::Span::styled(
                     format!("{} ", arrow),
-                    ratatui::style::Style::default().fg(ratatui::style::Color::Cyan),
+                    ratatui::style::Style::default().fg(theme.success()),
                 ),
                 ratatui::text::Span::raw(format!("{}", agent_id)),
             ])];
@@ -141,7 +142,7 @@ pub fn render_block(strategy: &BlockRenderStrategy, width: usize) -> Vec<Line<'s
             lines
         }
         BlockRenderStrategy::SystemNote { content } => {
-            vec![Line::from(format!("ℹ {}", content))]
+            vec![Line::from(format!("[i] {}", content))]
         }
     }
 }

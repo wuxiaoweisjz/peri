@@ -265,7 +265,7 @@ mod tests {
                 "",
                 vec![ToolCallRequest::new(
                     "tc1",
-                    "bash",
+                    "Bash",
                     json!({"command": "ls"}),
                 )],
             ),
@@ -315,7 +315,7 @@ mod tests {
                 "id": "tc1",
                 "type": "function",
                 "function": {
-                    "name": "bash",
+                    "name": "Bash",
                     "arguments": "{\"command\":\"ls\"}"
                 }
             }]
@@ -327,7 +327,7 @@ mod tests {
         assert!(msg.has_tool_calls());
         assert_eq!(msg.tool_calls().len(), 1);
         assert_eq!(msg.tool_calls()[0].id, "tc1");
-        assert_eq!(msg.tool_calls()[0].name, "bash");
+        assert_eq!(msg.tool_calls()[0].name, "Bash");
 
         // content blocks 中也应有 ToolUse（双写一致）
         let has_tool_use = msg
@@ -378,7 +378,7 @@ mod tests {
         let msg = BaseMessage::ai_from_blocks(vec![
             ContentBlock::reasoning("need bash"),
             ContentBlock::text("running..."),
-            ContentBlock::tool_use("tc1", "bash", json!({"command": "ls"})),
+            ContentBlock::tool_use("tc1", "Bash", json!({"command": "ls"})),
         ]);
         let val = OpenAiAdapter::from_base_messages(&[msg]);
         let arr = val.as_array().unwrap();

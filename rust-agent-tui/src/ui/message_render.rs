@@ -29,7 +29,7 @@ pub fn render_view_model(
 ) -> Vec<Line<'static>> {
     match vm {
         MessageViewModel::UserBubble { rendered, .. } => {
-            let user_bg: Color = Color::Rgb(74, 70, 66);
+            let user_bg: Color = theme::USER_BG;
             let mut lines = Vec::with_capacity(rendered.lines.len() + 1);
             for (i, line) in rendered.lines.iter().enumerate() {
                 if i == 0 {
@@ -70,7 +70,7 @@ pub fn render_view_model(
                             if !first_text_merged {
                                 // 第一行文本合并到标题行，保留 markdown 样式 spans
                                 let mut spans = vec![
-                                    Span::styled(format!("●"), Style::default().fg(Color::White)),
+                                    Span::styled(format!("●"), Style::default().fg(theme::TEXT)),
                                     Span::raw(" "),
                                 ];
                                 spans.extend(line.spans.clone());
@@ -161,8 +161,8 @@ pub fn render_view_model(
                 )
             };
             let indicator_color = match state.status {
-                perihelion_widgets::ToolCallStatus::Completed => Color::Green,
-                _ => Color::White,
+                perihelion_widgets::ToolCallStatus::Completed => theme::SAGE,
+                _ => theme::TEXT,
             };
             let mut header_spans = vec![
                 Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),
@@ -170,7 +170,7 @@ pub fn render_view_model(
                 Span::styled(
                     state.tool_name.clone(),
                     Style::default()
-                        .fg(Color::White)
+                        .fg(theme::TEXT)
                         .add_modifier(Modifier::BOLD),
                 ),
             ];
@@ -181,7 +181,7 @@ pub fn render_view_model(
                 );
                 header_spans.push(Span::styled(
                     format!("({})", summary),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::DIM),
                 ));
             }
             let mut lines = vec![Line::from(header_spans)];
@@ -194,7 +194,7 @@ pub fn render_view_model(
                 let border_color = if *is_error {
                     theme::ERROR
                 } else {
-                    Color::DarkGray
+                    *color
                 };
                 for line in &state.result_lines {
                     lines.push(Line::from(vec![
@@ -294,7 +294,7 @@ pub fn render_view_model(
             } else if is_warn {
                 ("⚠ ", theme::WARNING, theme::WARNING)
             } else {
-                ("ℹ ", theme::SAGE, theme::MUTED)
+                ("[i] ", theme::SAGE, theme::MUTED)
             };
             for line in content.lines() {
                 lines.push(Line::from(vec![
@@ -329,7 +329,7 @@ pub fn render_view_model(
                 lines.push(Line::from(vec![Span::styled(
                     format!("  {}{}", arrow, summary),
                     Style::default()
-                        .fg(Color::White)
+                        .fg(theme::TEXT)
                         .add_modifier(Modifier::BOLD),
                 )]));
                 for entry in tools {
@@ -347,7 +347,7 @@ pub fn render_view_model(
                         ]));
                     } else {
                         lines.push(Line::from(vec![
-                            Span::styled("  │ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("  │ ", Style::default().fg(theme::DIM)),
                             Span::styled(detail, Style::default().fg(theme::MUTED)),
                         ]));
                     }

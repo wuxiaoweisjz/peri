@@ -127,8 +127,8 @@ mod tests {
 
     #[test]
     fn test_toggle_collapse() {
-        let mut state = ToolCallState::new("read_file".to_string(), Color::Blue);
-        assert!(state.collapsed, "read_file should collapse by default");
+        let mut state = ToolCallState::new("Read".to_string(), Color::Blue);
+        assert!(state.collapsed, "Read should collapse by default");
         state.toggle_collapse();
         assert!(!state.collapsed);
     }

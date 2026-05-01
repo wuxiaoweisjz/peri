@@ -242,10 +242,10 @@ mod tests {
     fn test_whitelist_only_compactable_tools() {
         let long_text = "x".repeat(600);
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result("tc1", &long_text),
             BaseMessage::human("q"),
-            ai_with_tool("tc2", "ask_user_question"),
+            ai_with_tool("tc2", "AskUserQuestion"),
             tool_result("tc2", &long_text),
         ];
         let mut config = test_config();
@@ -260,13 +260,13 @@ mod tests {
     fn test_whitelist_custom_list() {
         let long_text = "x".repeat(600);
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result("tc1", &long_text),
-            ai_with_tool("tc2", "read_file"),
+            ai_with_tool("tc2", "Read"),
             tool_result("tc2", &long_text),
         ];
         let mut config = CompactConfig {
-            micro_compactable_tools: vec!["read_file".to_string()],
+            micro_compactable_tools: vec!["Read".to_string()],
             micro_compact_stale_steps: 0,
             ..Default::default()
         };
@@ -297,7 +297,7 @@ mod tests {
         let mut msgs: Vec<BaseMessage> = Vec::new();
         for i in 0..7 {
             let tc_id = format!("tc{}", i);
-            msgs.push(ai_with_tool(&tc_id, "bash"));
+            msgs.push(ai_with_tool(&tc_id, "Bash"));
             msgs.push(tool_result(&tc_id, &long_text));
         }
         let mut config = test_config();
@@ -310,11 +310,11 @@ mod tests {
     fn test_stale_steps_zero_compact_all() {
         let long_text = "x".repeat(600);
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result("tc1", &long_text),
-            ai_with_tool("tc2", "bash"),
+            ai_with_tool("tc2", "Bash"),
             tool_result("tc2", &long_text),
-            ai_with_tool("tc3", "bash"),
+            ai_with_tool("tc3", "Bash"),
             tool_result("tc3", &long_text),
         ];
         let mut config = test_config();
@@ -327,11 +327,11 @@ mod tests {
     fn test_stale_steps_large_keep_all() {
         let long_text = "x".repeat(600);
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result("tc1", &long_text),
-            ai_with_tool("tc2", "bash"),
+            ai_with_tool("tc2", "Bash"),
             tool_result("tc2", &long_text),
-            ai_with_tool("tc3", "bash"),
+            ai_with_tool("tc3", "Bash"),
             tool_result("tc3", &long_text),
         ];
         let mut config = test_config();
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn test_image_replaced_with_placeholder() {
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result_with_image("tc1", "text"),
         ];
         let mut config = test_config();
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn test_large_image_compacted_with_token_info() {
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result_with_large_image("tc1"),
         ];
         let mut config = test_config();
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn test_image_in_recent_step_preserved() {
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result_with_image("tc1", "text"),
         ];
         let mut config = test_config();
@@ -394,8 +394,8 @@ mod tests {
             BaseMessage::ai_with_tool_calls(
                 MessageContent::text("using tools"),
                 vec![
-                    ToolCallRequest::new("tc1", "bash", json!({})),
-                    ToolCallRequest::new("tc2", "bash", json!({})),
+                    ToolCallRequest::new("tc1", "Bash", json!({})),
+                    ToolCallRequest::new("tc2", "Bash", json!({})),
                 ],
             ),
             tool_result("tc1", &long_text),
@@ -412,7 +412,7 @@ mod tests {
     fn test_invariant_preserves_ai_parent() {
         let long_text = "x".repeat(600);
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result("tc1", &long_text),
             BaseMessage::human("q"),
             ai_plain("done"),
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn test_error_tool_result_preserved() {
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             BaseMessage::tool_error("tc1", "error message"),
         ];
         let mut config = test_config();
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn test_already_compacted_skipped() {
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result("tc1", "[compacted: 600 chars]"),
         ];
         let mut config = test_config();
@@ -487,11 +487,11 @@ mod tests {
     fn test_mixed_compactable_and_protected() {
         let long_text = "x".repeat(600);
         let mut msgs = vec![
-            ai_with_tool("tc1", "bash"),
+            ai_with_tool("tc1", "Bash"),
             tool_result("tc1", &long_text),
-            ai_with_tool("tc2", "ask_user_question"),
+            ai_with_tool("tc2", "AskUserQuestion"),
             tool_result("tc2", &long_text),
-            ai_with_tool("tc3", "bash"),
+            ai_with_tool("tc3", "Bash"),
             tool_result("tc3", &long_text),
         ];
         let mut config = test_config();

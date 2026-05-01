@@ -22,15 +22,15 @@ description: >
 先阅读架构层面的文档，不深入源码实现。**并行执行**：
 
 ```
-read_file("CLAUDE.md")                   # 项目架构说明（最重要）
-glob_files("**/Cargo.toml")              # Workspace 模块结构（Rust 项目）
+Read("CLAUDE.md")                   # 项目架构说明（最重要）
+Glob("**/Cargo.toml")              # Workspace 模块结构（Rust 项目）
 bash("git log --oneline -15")            # 近期改动方向
 ```
 
 如果存在 spec/global/ 目录，还需读取：
 
 ```
-glob_files("spec/global/**/*.md")        # 全局架构文档
+Glob("spec/global/**/*.md")        # 全局架构文档
 ```
 
 > 目标：搞清楚项目有哪些模块、它们之间的依赖关系是什么、数据流的大方向——然后才能讨论改动的影响。

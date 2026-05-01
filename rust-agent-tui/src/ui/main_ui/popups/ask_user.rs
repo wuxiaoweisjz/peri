@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::Paragraph,
     Frame,
@@ -52,8 +52,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
     }
     let tab_bar = TabBar::new().style(TabStyle {
         active: Style::default()
-            .fg(Color::White)
-            .bg(theme::ACCENT)
+            .fg(theme::THINKING)
             .add_modifier(Modifier::BOLD),
         completed: Style::default().fg(theme::SAGE),
         incomplete: Style::default().fg(theme::MUTED),
@@ -104,7 +103,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
         let is_selected = cur.selected.get(i).copied().unwrap_or(false);
         let check = if is_selected { "●" } else { "○" };
         let row_style = if is_cursor {
-            Style::default().fg(Color::White).bg(theme::ACCENT)
+            Style::default().fg(theme::THINKING)
         } else if is_selected {
             Style::default().fg(theme::ACCENT)
         } else {
@@ -112,7 +111,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
         };
         lines.push(Line::from(vec![
             Span::styled(
-                format!(" {} {} ", if is_cursor { "▶" } else { " " }, check),
+                format!(" {} {} ", if is_cursor { "❯" } else { " " }, check),
                 row_style,
             ),
             Span::styled(opt.label.clone(), row_style),
@@ -141,7 +140,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
         cur.custom_input.clone()
     };
     let style = if is_cur {
-        Style::default().fg(Color::White).bg(theme::WARNING)
+        Style::default().fg(theme::TEXT).bg(theme::WARNING)
     } else {
         Style::default().fg(theme::MUTED)
     };

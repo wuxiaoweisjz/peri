@@ -77,13 +77,13 @@ src/
 │   ├── filesystem.rs     — FilesystemMiddleware（提供 6 个工具，见工具清单）
 │   ├── terminal.rs       — TerminalMiddleware（bash 工具，120s 超时，跨平台）
 │   ├── prepend_system.rs — PrependSystemMiddleware（before_agent 注入 system prompt）
-│   └── todo.rs           — TodoMiddleware（after_tool 解析 todo_write，推送 channel）
+│   └── todo.rs           — TodoMiddleware（after_tool 解析 TodoWrite，推送 channel）
 ├── hitl/
 │   ├── mod.rs            — HumanInTheLoopMiddleware（before_tool 拦截 + requires_approval 判断）
 │   ├── shared_mode.rs    — SharedPermissionMode (Arc<AtomicU8> 无锁共享权限模式)
 │   └── auto_classifier.rs — LlmAutoClassifier (Auto 模式分类器)
 ├── subagent/
-│   ├── mod.rs            — SubAgentMiddleware（挂载 launch_agent 工具 + LLM 工厂 + system builder）
+│   ├── mod.rs            — SubAgentMiddleware（挂载 Agent 工具 + LLM 工厂 + system builder）
 │   ├── tool.rs           — SubAgentTool（读 agent 定义、创建子 Agent、工具过滤/防递归）
 │   └── skill_preload.rs  — SkillPreloadMiddleware（before_agent 注入 skill 全文为 fake tool 调用序列）
 ├── skills/
@@ -300,9 +300,9 @@ LlmCallEnd 携带 usage
 4. SkillPreloadMiddleware     ← 消息含 #skill-name 时注入 skill 全文（fake tool 序列）
 5. FilesystemMiddleware       ← 提供 6 个文件系统工具
 6. TerminalMiddleware         ← 提供 bash 工具
-7. TodoMiddleware             ← after_tool 解析 todo_write 结果
+7. TodoMiddleware             ← after_tool 解析 TodoWrite 结果
 8. HumanInTheLoopMiddleware   ← before_tool 拦截敏感工具
-9. SubAgentMiddleware         ← 提供 launch_agent 工具
+9. SubAgentMiddleware         ← 提供 Agent 工具
 [ReActAgent.with_system_prompt()] ← system prompt 固定在 run_before_agent 之后 prepend，不依赖中间件顺序
 
 子 Agent（SubAgentTool 内部组装）：

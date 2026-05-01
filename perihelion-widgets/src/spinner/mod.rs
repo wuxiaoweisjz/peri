@@ -117,6 +117,8 @@ pub struct SpinnerWidget<'a> {
     state: &'a SpinnerState,
     show_elapsed: bool,
     show_tokens: bool,
+    primary_color: Color,
+    secondary_color: Color,
 }
 
 impl<'a> SpinnerWidget<'a> {
@@ -125,6 +127,8 @@ impl<'a> SpinnerWidget<'a> {
             state,
             show_elapsed: true,
             show_tokens: true,
+            primary_color: Color::Rgb(215, 119, 87),   // ACCENT #D77757
+            secondary_color: Color::Rgb(153, 153, 153), // MUTED #999999
         }
     }
 
@@ -137,6 +141,12 @@ impl<'a> SpinnerWidget<'a> {
         self.show_tokens = show;
         self
     }
+
+    pub fn theme_colors(mut self, primary: Color, secondary: Color) -> Self {
+        self.primary_color = primary;
+        self.secondary_color = secondary;
+        self
+    }
 }
 
 impl<'a> Widget for SpinnerWidget<'a> {
@@ -144,8 +154,8 @@ impl<'a> Widget for SpinnerWidget<'a> {
         let mut spans: Vec<Span<'_>> = vec![];
 
         let frame = animation::tick_to_frame(self.state.tick());
-        let orange = Style::default().fg(Color::Rgb(255, 140, 0));
-        let gray = Style::default().fg(Color::Gray);
+        let orange = Style::default().fg(self.primary_color);
+        let gray = Style::default().fg(self.secondary_color);
 
         spans.push(Span::styled(format!("{} ", frame), orange));
 

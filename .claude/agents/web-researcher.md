@@ -126,9 +126,9 @@ Output MUST follow this exact template. Do not add free-form prose outside the s
 
 | Tool | Purpose |
 |------|---------|
-| `bash` | Run `npx @langgraph-js/web-fetch` for search and page fetching |
-| `write_file` | Save intermediate results to `/tmp/research_*.md` |
-| `read_file` | Re-read saved intermediate files for synthesis |
+| `Bash` | Run `npx @langgraph-js/web-fetch` for search and page fetching |
+| `Write` | Save intermediate results to `/tmp/research_*.md` |
+| `Read` | Re-read saved intermediate files for synthesis |
 
 ## Safety Constraints
 

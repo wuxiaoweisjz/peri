@@ -17,14 +17,14 @@ fn is_skills_path(path: &str) -> bool {
         || (normalized.contains("/skills/") && normalized.ends_with("SKILL.md"))
 }
 
-/// 从消息历史中提取最近通过 read_file 工具读取的文件路径（去重，保留最新）
+/// 从消息历史中提取最近通过 Read 工具读取的文件路径（去重，保留最新）
 fn extract_recent_files(messages: &[BaseMessage], max_files: usize) -> Vec<String> {
     let mut seen = std::collections::HashSet::<String>::new();
     let mut paths = Vec::new();
 
     for msg in messages.iter().rev() {
         for tc in msg.tool_calls() {
-            if tc.name == "read_file" {
+            if tc.name == "Read" {
                 if let Some(path) = tc.arguments.get("path").and_then(|v| v.as_str()) {
                     if is_skills_path(path) {
                         continue;
@@ -50,7 +50,7 @@ fn extract_skills_paths(messages: &[BaseMessage]) -> Vec<String> {
 
     for msg in messages.iter() {
         for tc in msg.tool_calls() {
-            if tc.name == "read_file" {
+            if tc.name == "Read" {
                 if let Some(path) = tc.arguments.get("path").and_then(|v| v.as_str()) {
                     if is_skills_path(path) && seen.insert(path.to_string()) {
                         paths.push(path.to_string());
@@ -222,7 +222,7 @@ mod tests {
             MessageContent::text("reading file"),
             vec![ToolCallRequest::new(
                 tc_id,
-                "read_file",
+                "Read",
                 json!({"path": path}),
             )],
         )
@@ -233,7 +233,7 @@ mod tests {
             MessageContent::text(""),
             vec![ToolCallRequest::new(
                 format!("skill_preload_{}", index),
-                "read_file",
+                "Read",
                 json!({"path": skill_path}),
             )],
         )
@@ -509,7 +509,7 @@ mod tests {
             MessageContent::text("running"),
             vec![ToolCallRequest::new(
                 "tc1",
-                "bash",
+                "Bash",
                 json!({"command": "ls"}),
             )],
         )];

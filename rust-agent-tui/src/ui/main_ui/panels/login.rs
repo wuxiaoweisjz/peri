@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::Paragraph,
     Frame,
@@ -47,11 +47,11 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
                 let is_cursor = i == panel.cursor;
                 let is_active = p.id == active_provider_id;
                 let bullet = if is_active { "●" } else { "○" };
-                let cursor_char = if is_cursor { "▶" } else { " " };
+                let cursor_char = if is_cursor { "❯" } else { " " };
                 let name = p.display_name().to_string();
                 let type_tag = format!("({})", p.provider_type);
                 let row_style = if is_cursor {
-                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                    Style::default().fg(theme::THINKING)
                 } else if is_active {
                     Style::default().fg(theme::ACCENT)
                 } else {
@@ -63,7 +63,7 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
                     Span::styled(
                         type_tag,
                         row_style.fg(if is_cursor {
-                            Color::White
+                            theme::TEXT
                         } else {
                             theme::MUTED
                         }),
@@ -78,14 +78,14 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
                         v.to_string()
                     }
                 };
-                let label_fg = if is_cursor { Color::White } else { theme::TEXT };
+                let label_fg = if is_cursor { theme::TEXT } else { theme::TEXT };
                 let (opus_fg, sonnet_fg, haiku_fg) = if is_cursor {
-                    (Color::Cyan, Color::Magenta, Color::Yellow)
+                    (theme::SAGE, theme::ACCENT, theme::WARNING)
                 } else {
-                    (Color::Cyan, Color::Magenta, Color::Yellow)
+                    (theme::SAGE, theme::ACCENT, theme::WARNING)
                 };
                 let sep = if is_cursor {
-                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                    Style::default().fg(theme::THINKING)
                 } else {
                     Style::default().fg(theme::MUTED)
                 };
@@ -203,10 +203,9 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
                 let (label_style, value_style) = if is_active {
                     (
                         Style::default()
-                            .fg(Color::White)
-                            .bg(theme::ACCENT)
+                            .fg(theme::THINKING)
                             .add_modifier(Modifier::BOLD),
-                        Style::default().fg(Color::White).bg(theme::ACCENT),
+                        Style::default().fg(theme::THINKING),
                     )
                 } else {
                     (
@@ -264,9 +263,9 @@ pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
                 let is_cursor = i == panel.cursor;
                 let is_active = p.id == active_provider_id;
                 let bullet = if is_active { "●" } else { "○" };
-                let cursor_char = if is_cursor { "▶" } else { " " };
+                let cursor_char = if is_cursor { "❯" } else { " " };
                 let row_style = if is_cursor {
-                    Style::default().fg(Color::White).bg(theme::ACCENT)
+                    Style::default().fg(theme::THINKING)
                 } else if is_active {
                     Style::default().fg(theme::ACCENT)
                 } else {

@@ -30,7 +30,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
 
     for (i, task) in panel.tasks.iter().enumerate() {
         let is_cursor = i == panel.cursor;
-        let cursor_char = if is_cursor { "▶ " } else { "  " };
+        let cursor_char = if is_cursor { "❯ " } else { "  " };
         let status_icon = if task.enabled {
             "✓启用"
         } else {
@@ -54,8 +54,7 @@ pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
 
         let style = if is_cursor {
             Style::default()
-                .fg(ratatui::style::Color::White)
-                .bg(theme::ACCENT)
+                .fg(theme::THINKING)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme::TEXT)

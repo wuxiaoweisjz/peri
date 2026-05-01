@@ -11,44 +11,52 @@ pub struct DarkTheme;
 
 impl Theme for DarkTheme {
     fn accent(&self) -> Color {
-        Color::Rgb(255, 107, 43)
-    } // ACCENT #FF6B2B
+        Color::Rgb(215, 119, 87)
+    } // ACCENT #D77757
     fn success(&self) -> Color {
-        Color::Rgb(110, 181, 106)
-    } // SAGE #6EB56A
+        Color::Rgb(78, 186, 101)
+    } // SAGE #4EBA65
     fn warning(&self) -> Color {
-        Color::Rgb(176, 152, 120)
-    } // WARNING #B09878
+        Color::Rgb(255, 193, 7)
+    } // WARNING #FFC107
     fn error(&self) -> Color {
-        Color::Rgb(204, 70, 62)
-    } // ERROR #CC463E
+        Color::Rgb(255, 107, 128)
+    } // ERROR #FF6B80
     fn thinking(&self) -> Color {
-        Color::Rgb(167, 139, 250)
-    } // THINKING #A78BFA
+        Color::Rgb(175, 135, 255)
+    } // THINKING #AF87FF
     fn text(&self) -> Color {
-        Color::Rgb(218, 206, 208)
-    } // TEXT #DACED0
+        Color::Rgb(255, 255, 255)
+    } // TEXT #FFFFFF
     fn muted(&self) -> Color {
-        Color::Rgb(140, 125, 120)
-    } // MUTED #8C7D78
+        Color::Rgb(153, 153, 153)
+    } // MUTED #999999
     fn dim(&self) -> Color {
-        Color::Rgb(72, 62, 58)
-    } // DIM #483E3A
+        Color::Rgb(80, 80, 80)
+    } // DIM #505050
     fn border(&self) -> Color {
-        Color::Rgb(48, 38, 32)
-    } // BORDER #302620
+        Color::Rgb(80, 80, 80)
+    } // BORDER #505050
     fn border_active(&self) -> Color {
-        Color::Rgb(255, 107, 43)
-    } // = accent
+        Color::Rgb(215, 119, 87)
+    } // = accent #D77757
     fn popup_bg(&self) -> Color {
-        Color::Rgb(10, 8, 6)
-    } // POPUP_BG #0A0806
+        Color::Rgb(0, 0, 0)
+    } // POPUP_BG #000000
     fn cursor_bg(&self) -> Color {
-        Color::Rgb(38, 22, 10)
-    } // CURSOR_BG #261608
+        Color::Rgb(38, 38, 38)
+    } // CURSOR_BG #262626
     fn loading(&self) -> Color {
-        Color::Rgb(34, 211, 238)
-    } // LOADING #22D3EE
+        Color::Rgb(147, 165, 255)
+    } // LOADING #93A5FF
+
+    fn user_bg(&self) -> Color {
+        Color::Rgb(55, 55, 55)
+    } // USER_BG #373737
+
+    fn bash_border(&self) -> Color {
+        Color::Rgb(253, 93, 177)
+    } // BASH_BORDER #FD5DB1
 }
 
 #[cfg(test)]
@@ -58,7 +66,7 @@ mod tests {
     #[test]
     fn dark_theme_returns_correct_colors() {
         let theme = DarkTheme;
-        assert_eq!(theme.accent(), Color::Rgb(255, 107, 43));
+        assert_eq!(theme.accent(), Color::Rgb(215, 119, 87));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     Frame,
 };
@@ -42,15 +42,14 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
     let is_none_selected = panel.selected_id.is_none();
     lines.push(Line::from(vec![
         Span::styled(
-            if is_none_cursor { "▶ " } else { "  " },
+            if is_none_cursor { "❯ " } else { "  " },
             Style::default().fg(theme::ACCENT),
         ),
         Span::styled(
             "○ 无 Agent（默认）",
             if is_none_cursor {
                 Style::default()
-                    .fg(Color::White)
-                    .bg(theme::ACCENT)
+                    .fg(theme::THINKING)
                     .add_modifier(Modifier::BOLD)
             } else if is_none_selected {
                 Style::default()
@@ -70,12 +69,11 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
         let is_selected = panel.selected_id.as_ref() == Some(&agent.id);
 
         let bullet = if is_selected { "●" } else { "○" };
-        let cursor_char = if is_cursor { "▶" } else { " " };
+        let cursor_char = if is_cursor { "❯" } else { " " };
 
         let name_style = if is_cursor {
             Style::default()
-                .fg(Color::White)
-                .bg(theme::ACCENT)
+                .fg(theme::THINKING)
                 .add_modifier(Modifier::BOLD)
         } else if is_selected {
             Style::default()
@@ -93,7 +91,7 @@ pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
         // 描述行（次要信息）
         if !agent.description.is_empty() {
             let desc_style = if is_cursor {
-                Style::default().fg(theme::MUTED).bg(theme::ACCENT)
+                Style::default().fg(theme::MUTED)
             } else {
                 Style::default().fg(theme::MUTED)
             };

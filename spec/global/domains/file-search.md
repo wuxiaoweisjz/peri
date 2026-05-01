@@ -15,7 +15,7 @@
 ### 搜索流程
 
 ```
-search_files_rg(pattern, path, glob, type, case_insensitive, whole_word, context, head_limit)
+Grep(pattern, path, glob, type, case_insensitive, whole_word, context, head_limit)
   → RegexMatcherBuilder 构建 matcher
   → WalkBuilder 配置目录遍历（自动尊重 .gitignore）
   → WalkParallel + num_cpus 线程并行搜索

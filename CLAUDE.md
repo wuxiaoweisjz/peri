@@ -187,7 +187,7 @@ submit_message()
 
 `HitlDecision` 四种结果：`Approve` / `Edit(new_input)` / `Reject` → 错误 / `Respond(msg)` → 原因。
 
-默认需审批工具：`bash`、`folder_operations`、`launch_agent`、`write_*`、`edit_*`、`delete_*`、`rm_*`。
+默认需审批工具：`Bash`、`folder_operations`、`Agent`、`Write`、`Edit`、`delete_*`、`rm_*`。
 
 ### Skills
 
@@ -204,11 +204,11 @@ submit_message()
 2. AgentsMdMiddleware         ← 读 CLAUDE.md/AGENTS.md 注入 system
 3. SkillsMiddleware           ← Skills 摘要注入 system
 4. SkillPreloadMiddleware     ← #skill-name 全文注入（fake tool 序列）
-5. FilesystemMiddleware       ← 6 个文件系统工具
-6. TerminalMiddleware         ← bash 工具
-7. TodoMiddleware             ← after_tool 解析 todo_write
+5. FilesystemMiddleware       ← 6 个文件系统工具（Read/Write/Edit/Glob/Grep/folder_operations）
+6. TerminalMiddleware         ← Bash 工具
+7. TodoMiddleware             ← after_tool 解析 TodoWrite
 8. HumanInTheLoopMiddleware   ← before_tool 拦截敏感工具
-9. SubAgentMiddleware         ← launch_agent 工具
+9. SubAgentMiddleware         ← Agent 工具
 [ReActAgent.with_system_prompt()] ← system prompt prepend
 ```
 
@@ -251,20 +251,20 @@ TUI 层扩展：`Done` / `Error` / `ApprovalNeeded` / `AskUserBatch`。
 
 | 工具 | 来源 | 需 HITL |
 |------|------|---------|
-| `read_file` | FilesystemMiddleware | — |
-| `write_file` | FilesystemMiddleware | ✓ |
-| `edit_file` | FilesystemMiddleware | ✓ |
-| `glob_files` | FilesystemMiddleware | — |
-| `search_files_rg` | FilesystemMiddleware（grep+grep-regex 进程内搜索，WalkParallel 并行） | — |
+| `Read` | FilesystemMiddleware | — |
+| `Write` | FilesystemMiddleware | ✓ |
+| `Edit` | FilesystemMiddleware | ✓ |
+| `Glob` | FilesystemMiddleware | — |
+| `Grep` | FilesystemMiddleware（grep+grep-regex 进程内搜索，WalkParallel 并行） | — |
 | `folder_operations` | FilesystemMiddleware | ✓ |
-| `bash` | TerminalMiddleware | ✓ |
-| `todo_write` | TodoMiddleware | — |
-| `ask_user_question` | 手动注册（AskUserTool） | — |
-| `launch_agent` | SubAgentMiddleware | ✓ |
+| `Bash` | TerminalMiddleware | ✓ |
+| `TodoWrite` | TodoMiddleware | — |
+| `AskUserQuestion` | 手动注册（AskUserTool） | — |
+| `Agent` | SubAgentMiddleware | ✓ |
 
-`bash` 默认超时 120 秒。跨平台：Windows 用 `cmd /C`，其他用 `bash -c`。
+`Bash` 默认超时 120 秒。跨平台：Windows 用 `cmd /C`，其他用 `bash -c`。
 
-### ask_user_question 工具参数
+### AskUserQuestion 工具参数
 
 批量向用户提问，1-4 个问题一次性发出，支持单选/多选。
 
@@ -297,7 +297,7 @@ TUI 层扩展：`Done` / `Error` / `ApprovalNeeded` / `AskUserBatch`。
 
 ### SubAgents（子 Agent 委派）
 
-`launch_agent` 工具允许 LLM 将子任务委派给 `.claude/agents/{agent_id}/agent.md` 定义的专门 agent 执行。
+`Agent` 工具允许 LLM 将子任务委派给 `.claude/agents/{agent_id}/agent.md` 定义的专门 agent 执行。
 
 **工具参数：**
 
@@ -309,7 +309,7 @@ TUI 层扩展：`Done` / `Error` / `ApprovalNeeded` / `AskUserBatch`。
 
 **工具过滤规则：**
 
-- `tools` 字段为空 → 子 agent 继承所有父工具（排除 `launch_agent` 自身，防递归）
+- `tools` 字段为空 → 子 agent 继承所有父工具（排除 `Agent` 自身，防递归）
 - `tools` 字段有值 → 仅保留允许列表中的工具
 - `disallowedTools` 字段 → 额外排除指定工具
 
@@ -429,7 +429,7 @@ ReActAgent::new(llm)
 | `OPENAI_API_KEY` | OpenAI 兼容 API Key |
 | `OPENAI_BASE_URL` | API Base URL |
 | `OPENAI_MODEL` | 模型名称 |
-| `YOLO_MODE=true` | 默认行为，跳过 HITL 审批（不影响 ask_user_question） |
+| `YOLO_MODE=true` | 默认行为，跳过 HITL 审批（不影响 AskUserQuestion） |
 | `YOLO_MODE=false` | 启用 HITL 审批 |
 | `RUST_LOG` | 日志级别（默认 `info`） |
 | `RUST_LOG_FILE` | 日志文件路径 |
@@ -456,6 +456,7 @@ ReActAgent::new(llm)
 - 单元测试 `#[cfg(test)] mod tests`，bin crate 集成测试在 `src/` 内（不支持 `tests/` 目录）
 - 文件组织：每模块一目录，`mod.rs` 入口
 - Workspace resolver = "2"，禁止下层 crate 依赖上层
+- 禁止使用 `ℹ`（U+2139）符号，系统消息前缀统一使用 `[i]`
 
 ## 开发注意事项
 

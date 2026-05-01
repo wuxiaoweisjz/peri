@@ -763,7 +763,7 @@ mod tests {
                         "try tool",
                         vec![ToolCall::new(
                             "id1",
-                            "bash",
+                            "Bash",
                             serde_json::json!({"command": "ls"}),
                         )],
                     ))
@@ -1081,7 +1081,7 @@ mod tests {
         let ev = AgentEvent::ToolStart {
             message_id: mid,
             tool_call_id: "tc1".to_string(),
-            name: "bash".to_string(),
+            name: "Bash".to_string(),
             input: serde_json::json!({}),
         };
         let json = serde_json::to_value(&ev).unwrap();
@@ -1093,7 +1093,7 @@ mod tests {
         let ev = AgentEvent::ToolEnd {
             message_id: mid,
             tool_call_id: "tc1".to_string(),
-            name: "bash".to_string(),
+            name: "Bash".to_string(),
             output: "ok".to_string(),
             is_error: false,
         };
