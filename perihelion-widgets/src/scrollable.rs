@@ -188,4 +188,31 @@ mod tests {
         // 20 lines, 5 visible -> max_scroll = 15
         assert_eq!(scroll_state.offset(), 15);
     }
+
+    #[test]
+    fn scroll_state_reset() {
+        let mut state = ScrollState { offset: 10 };
+        state.reset();
+        assert_eq!(state.offset(), 0);
+    }
+
+    #[test]
+    fn scroll_state_with_offset() {
+        let state = ScrollState::with_offset(5);
+        assert_eq!(state.offset(), 5);
+    }
+
+    #[test]
+    fn scroll_state_ensure_visible_zero_height() {
+        let mut state = ScrollState { offset: 5 };
+        state.ensure_visible(10, 0);
+        assert_eq!(state.offset(), 0, "visible_height=0 应重置 offset");
+    }
+
+    #[test]
+    fn scroll_state_scroll_down_clamps_to_max() {
+        let mut state = ScrollState::new();
+        state.scroll_down(100, 10, 5);
+        assert_eq!(state.offset(), 5, "offset 应不超过 content_height - visible_height");
+    }
 }
