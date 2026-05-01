@@ -243,4 +243,37 @@ mod tests {
             "50% should trigger warning at 50% threshold"
         );
     }
+
+    #[test]
+    fn test_token_tracker_reset() {
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(50000, 2000, Some(1000), Some(500)));
+        assert!(tracker.llm_call_count > 0);
+        tracker.reset();
+        assert_eq!(tracker.total_input_tokens, 0);
+        assert_eq!(tracker.total_output_tokens, 0);
+        assert_eq!(tracker.total_cache_creation_tokens, 0);
+        assert_eq!(tracker.total_cache_read_tokens, 0);
+        assert!(tracker.last_usage.is_none());
+        assert_eq!(tracker.llm_call_count, 0);
+    }
+
+    #[test]
+    fn test_context_budget_zero_context_window() {
+        let budget = ContextBudget::new(0);
+        let tracker = TokenTracker::default();
+        // 0 context_window → should_warn/should_auto_compact with no usage should return false
+        assert!(!budget.should_warn(&tracker));
+        assert!(!budget.should_auto_compact(&tracker));
+    }
+
+    #[test]
+    fn test_context_usage_percent_zero_window() {
+        let mut tracker = TokenTracker::default();
+        tracker.accumulate(&make_usage(100, 50, None, None));
+        let pct = tracker.context_usage_percent(0);
+        // Division by zero → should return Some(infinity) or handle gracefully
+        // The actual behavior is: 150.0 / 0.0 * 100.0 = inf
+        assert!(pct.is_some(), "should return Some even with 0 context window");
+    }
 }
