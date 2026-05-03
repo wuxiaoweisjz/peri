@@ -2763,7 +2763,7 @@ mod tests {
             .core
             .view_messages
             .iter()
-            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { tool_name, content, .. } if tool_name.contains("bg:") && content.contains("LGTM")));
+            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { tool_name, display_name, .. } if tool_name.contains("bg:") && display_name.contains("LGTM")));
         assert!(
             has_notification,
             "view_messages should contain background task notification"

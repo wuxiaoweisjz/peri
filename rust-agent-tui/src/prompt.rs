@@ -402,7 +402,7 @@ mod tests {
         };
         let result = build_system_prompt(None, dir.to_str().unwrap(), features);
         assert!(
-            result.contains("- **tester** (`tester`): A test agent"),
+            result.contains("- tester: A test agent"),
             "Should contain formatted agent entry, got: {}",
             result
         );
@@ -459,15 +459,15 @@ mod tests {
 
         let result = format_available_agents(dir.to_str().unwrap());
         assert!(
-            result.contains("- **code-reviewer** (`reviewer`): Reviews code"),
+            result.contains("- reviewer: Reviews code"),
             "Should contain reviewer entry"
         );
         assert!(
-            result.contains("- **data-analyst** (`analyst`): Analyzes data"),
+            result.contains("- analyst: Analyzes data"),
             "Should contain analyst entry"
         );
         // Verify each agent is on its own line
-        let lines: Vec<&str> = result.lines().filter(|l| l.starts_with("- **")).collect();
+        let lines: Vec<&str> = result.lines().filter(|l| l.starts_with("- ")).collect();
         assert_eq!(lines.len(), 2, "Should have 2 agent entries");
         let _ = std::fs::remove_dir_all(&dir);
     }
