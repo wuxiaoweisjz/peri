@@ -10,6 +10,21 @@ use crate::runner::template::interpolate_map;
 use crate::runner::template::TemplateContext;
 use crate::schema::{NodeDef, Platform};
 
+/// Maximum stdout/stderr length stored per node (256 KB).
+/// Longer output is truncated with a marker.
+const MAX_STORED_OUTPUT: usize = 256 * 1024;
+
+fn truncate_for_storage(s: &str) -> String {
+    if s.len() <= MAX_STORED_OUTPUT {
+        return s.to_string();
+    }
+    let mut end = MAX_STORED_OUTPUT;
+    while !s.is_char_boundary(end) && end > 0 {
+        end -= 1;
+    }
+    format!("{}\n\n... [truncated, {} bytes total]", &s[..end], s.len())
+}
+
 /// Execute a single node and persist results to DB.
 /// Returns the resolved outputs map on success.
 /// `default_timeout` and `default_retry` from `NodeDefaults` are used when the
@@ -147,8 +162,8 @@ async fn execute_with_retry(
                     node_run_id,
                     status,
                     Some(result.exit_code),
-                    Some(&accumulated_stdout),
-                    Some(&accumulated_stderr),
+                    Some(&truncate_for_storage(&accumulated_stdout)),
+                    Some(&truncate_for_storage(&accumulated_stderr)),
                     None,
                 )
                 .await?;
@@ -538,5 +553,35 @@ mod tests {
         };
         let outputs = get_node_outputs(&node, &ctx);
         assert_eq!(outputs.get("artifact").unwrap(), "build/myapp.tar.gz");
+    }
+
+    #[test]
+    fn test_truncate_short() {
+        let s = "hello world";
+        assert_eq!(truncate_for_storage(s), "hello world");
+    }
+
+    #[test]
+    fn test_truncate_exact_limit() {
+        let s: String = "a".repeat(MAX_STORED_OUTPUT);
+        assert_eq!(truncate_for_storage(&s).len(), MAX_STORED_OUTPUT);
+    }
+
+    #[test]
+    fn test_truncate_over_limit() {
+        let s: String = "a".repeat(MAX_STORED_OUTPUT + 1000);
+        let truncated = truncate_for_storage(&s);
+        assert!(truncated.len() < s.len());
+        assert!(truncated.contains("[truncated"));
+    }
+
+    #[test]
+    fn test_truncate_multibyte_boundary() {
+        // CJK chars are 3 bytes each — make sure we don't slice mid-char
+        let s: String = "你".repeat(MAX_STORED_OUTPUT / 3 + 100);
+        let truncated = truncate_for_storage(&s);
+        assert!(truncated.contains("[truncated"));
+        // Verify result is valid UTF-8 (no panic from char boundary slice)
+        let _ = truncated.chars().count();
     }
 }

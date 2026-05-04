@@ -15,6 +15,9 @@ use crate::db::{
 };
 use crate::runner;
 
+/// Maximum YAML content size (1 MB). Prevents OOM from oversized payloads.
+const MAX_YAML_SIZE: usize = 1024 * 1024;
+
 /// Query parameters for list_workflows pagination.
 #[derive(Debug, serde::Deserialize)]
 pub struct ListWorkflowsQuery {
@@ -66,6 +69,22 @@ pub struct TemplateNodeInfo {
 pub struct AppState {
     pub pool: Arc<SqlitePool>,
     pub templates: Arc<RwLock<Vec<WorkflowTemplate>>>,
+}
+
+// ─── GET /health ────────────────────────────────────────────────────
+
+pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Verify DB connectivity
+    let db_ok = sqlx::query("SELECT 1").execute(&*state.pool).await.is_ok();
+
+    if db_ok {
+        (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"status": "degraded", "error": "database unavailable"})),
+        )
+    }
 }
 
 /// Create run + node records in DB inside a transaction, then start async execution.
@@ -189,6 +208,24 @@ pub struct ApiParam {
 pub async fn list_api_docs() -> impl IntoResponse {
     let endpoints = vec![
         ApiEndpoint {
+            method: "GET".into(),
+            path: "/health".into(),
+            description: "Health check endpoint. Verifies database connectivity.".into(),
+            params: vec![],
+            curl: "curl http://$HOST/health".into(),
+            response: r#"{ "status": "ok" }"#.into(),
+            category: Some("system".into()),
+        },
+        ApiEndpoint {
+            method: "DELETE".into(),
+            path: "/api/v1/workflows/{run_id}".into(),
+            description: "Delete a completed workflow run and all its node runs. Cannot delete running/pending runs.".into(),
+            params: vec![],
+            curl: "curl -X DELETE http://$HOST/api/v1/workflows/{run_id}".into(),
+            response: r#"{ "deleted": "019..." }"#.into(),
+            category: Some("workflows".into()),
+        },
+        ApiEndpoint {
             method: "POST".into(),
             path: "/api/v1/workflows".into(),
             description: "Submit a workflow YAML for execution. Returns the created run ID.".into(),
@@ -272,6 +309,16 @@ pub async fn submit_workflow(
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "yaml field must not be empty"})),
+        );
+    }
+
+    // Reject oversized YAML to prevent OOM
+    if req.yaml.len() > MAX_YAML_SIZE {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "error": format!("yaml content too large: {} bytes (max {} bytes)", req.yaml.len(), MAX_YAML_SIZE)
+            })),
         );
     }
 
@@ -407,6 +454,43 @@ pub async fn get_node_logs(
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "node not found in this run"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("{e}")})),
+        ),
+    }
+}
+
+// ─── DELETE /api/v1/workflows/:run_id ────────────────────────────────
+
+pub async fn delete_workflow_run(
+    State(state): State<Arc<AppState>>,
+    Path(run_id): Path<String>,
+) -> impl IntoResponse {
+    match WorkflowRun::find_by_id(&state.pool, &run_id).await {
+        Ok(Some(run)) => {
+            if run.status == "running" || run.status == "pending" {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "error": format!("cannot delete run in '{}' status, wait for completion", run.status)
+                    })),
+                );
+            }
+            // Delete node_runs first (foreign key), then workflow_run
+            let _ = NodeRun::delete_by_run(&state.pool, &run_id).await;
+            match WorkflowRun::delete(&state.pool, &run_id).await {
+                Ok(_) => (StatusCode::OK, Json(serde_json::json!({"deleted": run_id}))),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("{e}")})),
+                ),
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "workflow run not found"})),
         ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

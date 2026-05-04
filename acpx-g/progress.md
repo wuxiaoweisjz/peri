@@ -228,3 +228,22 @@ workflow 直接从 pending 跳到 failed 时（如事务错误），update_statu
 
 ### 测试覆盖
 - 94 个测试全部通过（新增 6 个：self-dep、empty node ID、multi-node deps、inputs、env、defaults）
+
+## 2026-05-04 18:00 Round 12 — Production API: Health Check, DELETE Run, Output Truncation, YAML Size Guard
+
+### 新增功能
+
+**1. Health Check 端点（生产运维）**
+`GET /health` 验证数据库连接可用性，返回 `{"status":"ok"}` 或 503。可用于负载均衡器和编排器健康检查。
+
+**2. DELETE Run API（运维清理）**
+`DELETE /api/v1/workflows/{run_id}` 删除已完成的工作流运行及其所有节点记录。禁止删除 running/pending 状态的运行（返回 409）。先删 node_runs（外键），再删 workflow_run。
+
+**3. 输出截断（存储保护）**
+执行器持久化 stdout/stderr 前自动截断超过 256KB 的输出，附加 `[truncated, N bytes total]` 标记。字符边界安全（CJK 字符不会截断到中间字节）。
+
+**4. YAML 大小限制（OOM 防护）**
+`POST /api/v1/workflows` 拒绝超过 1MB 的 YAML 内容，返回 413 Payload Too Large。
+
+### 测试覆盖
+- 98 个测试全部通过（新增 4 个：truncate short/exact/over/multibyte）

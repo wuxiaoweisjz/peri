@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use axum::{routing::get, routing::post, Router};
+use axum::{routing::delete, routing::get, routing::post, Router};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -39,6 +39,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Router
     let app = Router::new()
+        // Health check (for load balancers / orchestrators)
+        .route("/health", get(acpx_g::api::health_check))
         // API Docs
         .route("/api/v1/docs", get(acpx_g::api::list_api_docs))
         // Template API
@@ -51,6 +53,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/workflows", post(acpx_g::api::submit_workflow))
         .route("/api/v1/workflows", get(acpx_g::api::list_workflows))
         .route("/api/v1/workflows/{run_id}", get(acpx_g::api::get_workflow))
+        .route(
+            "/api/v1/workflows/{run_id}",
+            delete(acpx_g::api::delete_workflow_run),
+        )
         .route(
             "/api/v1/workflows/{run_id}/nodes/{node_id}/logs",
             get(acpx_g::api::get_node_logs),

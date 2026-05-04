@@ -106,6 +106,15 @@ impl WorkflowRun {
             .await?;
         Ok(row.0)
     }
+
+    /// Delete a workflow run by ID.
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<u64> {
+        let result = sqlx::query("DELETE FROM workflow_runs WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
 }
 
 // ─── Node Run ─────────────────────────────────────────────────────
@@ -254,6 +263,15 @@ impl NodeRun {
         .bind(run_id)
         .execute(pool)
         .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Delete all node runs for a given workflow run.
+    pub async fn delete_by_run(pool: &SqlitePool, run_id: &str) -> anyhow::Result<u64> {
+        let result = sqlx::query("DELETE FROM node_runs WHERE run_id = ?")
+            .bind(run_id)
+            .execute(pool)
+            .await?;
         Ok(result.rows_affected())
     }
 }
