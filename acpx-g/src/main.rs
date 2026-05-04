@@ -6,7 +6,7 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use peri_dag::watcher;
+use acpx_g::watcher;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -17,12 +17,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Database
     let database_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:peri-dag.db?mode=rwc".to_string());
-    let pool = Arc::new(peri_dag::db::init(&database_url).await?);
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:acpx-g.db?mode=rwc".to_string());
+    let pool = Arc::new(acpx_g::db::init(&database_url).await?);
 
     let templates = Arc::new(RwLock::new(Vec::new()));
 
-    let state = Arc::new(peri_dag::api::AppState {
+    let state = Arc::new(acpx_g::api::AppState {
         pool: pool.clone(),
         templates: templates.clone(),
     });
@@ -40,23 +40,23 @@ async fn main() -> anyhow::Result<()> {
     // Router
     let app = Router::new()
         // API Docs
-        .route("/api/v1/docs", get(peri_dag::api::list_api_docs))
+        .route("/api/v1/docs", get(acpx_g::api::list_api_docs))
         // Template API
-        .route("/api/v1/templates", get(peri_dag::api::list_templates))
+        .route("/api/v1/templates", get(acpx_g::api::list_templates))
         .route(
             "/api/v1/templates/{name}/run",
-            post(peri_dag::api::run_template),
+            post(acpx_g::api::run_template),
         )
         // Workflow API
-        .route("/api/v1/workflows", post(peri_dag::api::submit_workflow))
-        .route("/api/v1/workflows", get(peri_dag::api::list_workflows))
+        .route("/api/v1/workflows", post(acpx_g::api::submit_workflow))
+        .route("/api/v1/workflows", get(acpx_g::api::list_workflows))
         .route(
             "/api/v1/workflows/{run_id}",
-            get(peri_dag::api::get_workflow),
+            get(acpx_g::api::get_workflow),
         )
         .route(
             "/api/v1/workflows/{run_id}/nodes/{node_id}/logs",
-            get(peri_dag::api::get_node_logs),
+            get(acpx_g::api::get_node_logs),
         )
         // Frontend: serve / as index.html, then all static assets
         .fallback_service(
@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("0.0.0.0:{port}");
 
-    tracing::info!("peri-dag http://{addr}");
+    tracing::info!("acpx-g http://{addr}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
@@ -100,14 +100,14 @@ fn parse_cli_args() -> CliArgs {
                 }
             }
             "--help" | "-h" => {
-                eprintln!("peri-dag — DAG workflow engine\n");
+                eprintln!("acpx-g — DAG workflow engine\n");
                 eprintln!("USAGE:");
-                eprintln!("    peri-dag [OPTIONS]\n");
+                eprintln!("    acpx-g [OPTIONS]\n");
                 eprintln!("OPTIONS:");
                 eprintln!("    --workflow-dir <DIR>  Watch directory for workflow YAML files");
                 eprintln!("    --help, -h            Show this help message\n");
                 eprintln!("ENVIRONMENT:");
-                eprintln!("    DATABASE_URL  SQLite connection string (default: sqlite:peri-dag.db?mode=rwc)");
+                eprintln!("    DATABASE_URL  SQLite connection string (default: sqlite:acpx-g.db?mode=rwc)");
                 eprintln!("    PORT          HTTP server port (default: 3000)");
                 eprintln!("    RUST_LOG      Log level (default: info)");
                 std::process::exit(0);

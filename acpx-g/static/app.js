@@ -103,7 +103,7 @@ async function loadTemplates() {
     const tpls = d.templates || [];
     allTemplates = tpls;
     if (!tpls.length) {
-      el.innerHTML = '<div class="template-empty">No templates found<br><span style="font-size:11px">Start with: peri-dag --workflow-dir ./examples</span></div>';
+      el.innerHTML = '<div class="template-empty">No templates found<br><span style="font-size:11px">Start with: acpx-g --workflow-dir ./examples</span></div>';
       document.getElementById('graph-placeholder').textContent = 'Add a workflow directory to get started';
       document.getElementById('log-panel').innerHTML = '<div class="log-empty">Workflow logs will appear here</div>';
       return;

@@ -1,0 +1,31 @@
+# 简单 CI Pipeline：引用 setup.yml + agent 审查
+# 用法: acpx-g --workflow-dir examples/
+
+name: simple-ci
+version: "1.0"
+description: "simple test for reference and agent node"
+
+references:
+    setup: "./setup.yml"
+
+defaults:
+    retry: 1
+    timeout: 120
+
+# env:
+#     RUST_BACKTRACE: "1"
+
+nodes:
+    # 引用 setup 子 workflow（包含 shell_test 节点）
+    # 展开后生成: do-setup/shell_test
+    - id: do-setup
+      type: reference
+      ref: setup
+
+    # Agent: wraps acpx CLI
+    - id: acpx
+      type: agent
+      prompt: "say hello to me"
+      agent: ccb
+      model: haiku
+      depends: [do-setup]

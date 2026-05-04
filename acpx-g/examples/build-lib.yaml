@@ -1,24 +1,5 @@
 # 可复用的构建子 workflow
 # 提供 checkout → build → test 三阶段，暴露 repo_dir 和 artifact_path 输出
-#
-# 用法（在父 workflow 中）:
-#   references:
-#     build: "./build-lib.yaml"
-#   nodes:
-#     - id: do-build
-#       type: reference
-#       ref: build
-#       with:
-#         repo_url: "https://github.com/org/repo.git"
-#         branch: "main"
-#     - id: deploy
-#       type: shell
-#       run: "deploy {{ needs.do-build/build.artifact_path }}"
-#       depends: [do-build]           # 等待所有子节点完成
-#
-# 跨边界引用子节点输出:
-#   depends: [do-build/test]          # 只等 test 完成
-#   {{ needs.do-build/checkout.repo_dir }}
 
 name: build-lib
 version: "1.0"

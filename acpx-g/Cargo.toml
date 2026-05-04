@@ -1,15 +1,15 @@
 [package]
-name = "peri-dag"
+name = "acpx-g"
 version = "0.1.0"
 edition = "2021"
 description = "DAG workflow engine — YAML-defined workflows, web API, SQLite persistence"
 
 [lib]
-name = "peri_dag"
+name = "acpx_g"
 path = "src/lib.rs"
 
 [[bin]]
-name = "peri-dag"
+name = "acpx-g"
 path = "src/main.rs"
 
 [dependencies]

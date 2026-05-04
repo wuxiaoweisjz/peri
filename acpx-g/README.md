@@ -1,4 +1,4 @@
-# peri-dag
+# acpx-g
 
 DAG workflow engine — YAML-defined workflows, web API, SQLite persistence.
 
@@ -6,10 +6,10 @@ DAG workflow engine — YAML-defined workflows, web API, SQLite persistence.
 
 ```bash
 # Start the server
-DATABASE_URL="sqlite:peri-dag.db?mode=rwc" cargo run -p peri-dag
+DATABASE_URL="sqlite:acpx-g.db?mode=rwc" cargo run -p acpx-g
 
 # Or with default settings
-cargo run -p peri-dag
+cargo run -p acpx-g
 ```
 
 Server starts on `http://0.0.0.0:3000` (configurable via `PORT` env).
@@ -377,7 +377,7 @@ notify-done/send ←───────────┴────────
 ## Architecture
 
 ```
-peri-dag/
+acpx-g/
 ├── Cargo.toml
 ├── README.md
 └── src/
@@ -411,13 +411,13 @@ SQLite via `sqlx`. Two tables:
 - `workflow_runs` — id, name, version, yaml_content, status, timestamps
 - `node_runs` — id, run_id, node_id, node_type, status, attempt, stdout, stderr, exit_code
 
-Default DB path: `peri-dag.db` (configurable via `DATABASE_URL`).
+Default DB path: `acpx-g.db` (configurable via `DATABASE_URL`).
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite:peri-dag.db?mode=rwc` | SQLite connection string |
+| `DATABASE_URL` | `sqlite:acpx-g.db?mode=rwc` | SQLite connection string |
 | `PORT` | `3000` | HTTP server port |
 | `RUST_LOG` | — | Tracing log level (e.g. `info`, `debug`) |
 
