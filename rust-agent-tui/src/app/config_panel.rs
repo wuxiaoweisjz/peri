@@ -286,11 +286,11 @@ mod tests {
 
     #[test]
     fn test_config_panel_field_navigation() {
-        let panel = ConfigPanel::from_config(&ZenConfig::default());
-        let fields: Vec<_> = (0..6)
+        let _panel = ConfigPanel::from_config(&ZenConfig::default());
+        let _fields: Vec<_> = (0..6)
             .map(|_| {
                 let mut p = ConfigEditField::Autocompact;
-                for _ in 0..0 {
+                for _ in std::iter::empty::<u8>() {
                     p = p.next();
                 }
                 p

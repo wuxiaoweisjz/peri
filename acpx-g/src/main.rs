@@ -50,10 +50,7 @@ async fn main() -> anyhow::Result<()> {
         // Workflow API
         .route("/api/v1/workflows", post(acpx_g::api::submit_workflow))
         .route("/api/v1/workflows", get(acpx_g::api::list_workflows))
-        .route(
-            "/api/v1/workflows/{run_id}",
-            get(acpx_g::api::get_workflow),
-        )
+        .route("/api/v1/workflows/{run_id}", get(acpx_g::api::get_workflow))
         .route(
             "/api/v1/workflows/{run_id}/nodes/{node_id}/logs",
             get(acpx_g::api::get_node_logs),

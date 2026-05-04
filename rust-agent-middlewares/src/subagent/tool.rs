@@ -25,7 +25,6 @@ use tokio::sync::mpsc;
 /// LLM calls this tool with `subagent_type` and `prompt` to trigger execution of the corresponding agent definition file.
 /// The sub-agent inherits the parent's tool set (filtered by tools/disallowedTools fields),
 /// does not include HITL middleware, and returns execution results as a string to the parent agent.
-
 const AGENT_DESCRIPTION: &str = r#"Launch a sub-agent with an independent context to handle a specialized sub-task. The sub-agent executes based on the configuration defined in .claude/agents/{subagent_type}.md or .claude/agents/{subagent_type}/agent.md.
 
 Fork mode (fork: true):
@@ -67,11 +66,13 @@ pub struct SubAgentTool {
     parent_cwd: String,
     /// LLM factory function, creates independent LLM instance for each sub-agent (no system, injected via with_system_prompt())
     /// Parameter is optional model alias (e.g., "haiku"/"sonnet"/"opus"), None means inherit parent model
+    #[allow(clippy::type_complexity)]
     llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     /// System prompt builder: (agent overrides, cwd) -> system prompt string
     ///
     /// The returned content is injected into the sub-agent's state messages via `with_system_prompt()`,
     /// making it visible in Langfuse and other tracing tools. When None, no system prompt is injected.
+    #[allow(clippy::type_complexity)]
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
     /// Optional cancellation token for interrupting sub-agent execution
     cancel: Option<AgentCancellationToken>,
@@ -83,6 +84,7 @@ pub struct SubAgentTool {
 }
 
 impl SubAgentTool {
+    #[allow(clippy::type_complexity)]
     pub fn new(
         parent_tools: Arc<Vec<Arc<dyn BaseTool>>>,
         event_handler: Option<Arc<dyn AgentEventHandler>>,
@@ -102,6 +104,7 @@ impl SubAgentTool {
     }
 
     /// Set system prompt builder for injecting full system prompt including tone/proactiveness to sub-agent
+    #[allow(clippy::type_complexity)]
     pub fn with_system_builder(
         mut self,
         builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
@@ -710,6 +713,7 @@ fn format_subagent_result(output: &rust_create_agent::agent::react::AgentOutput)
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
     use rust_create_agent::agent::react::Reasoning;
@@ -1305,12 +1309,14 @@ mod tests {
     // ─── Fork path tests ────────────────────────────────────────────────────
 
     /// Mock LLM that captures messages and tools for inspection
+    #[allow(dead_code)]
     struct CaptureLLM {
         messages: Arc<std::sync::Mutex<Vec<usize>>>,
         tools: Arc<std::sync::Mutex<Vec<String>>>,
         last_content: Arc<std::sync::Mutex<String>>,
     }
 
+    #[allow(dead_code)]
     impl CaptureLLM {
         fn new() -> Self {
             Self {

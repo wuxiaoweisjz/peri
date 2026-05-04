@@ -3,6 +3,12 @@
 //! Rust middleware implementations aligned with `@langgraph-js/agent-middlewares` (TypeScript).
 //!
 //! ## 文件系统与终端（原 rust-agent-middlewares）
+
+#![allow(
+    clippy::type_complexity,
+    clippy::empty_line_after_doc_comments,
+    clippy::useless_conversion
+)]
 //! - [`middleware::FilesystemMiddleware`]：文件系统操作
 //! - [`middleware::TerminalMiddleware`]：终端命令执行
 //!

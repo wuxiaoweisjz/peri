@@ -95,6 +95,7 @@ pub fn assemble_agent(
     // 子 agent LLM 工厂
     let provider_clone = provider_for_factory;
     let config_for_factory = zen_config;
+    #[allow(clippy::type_complexity)]
     let llm_factory: Arc<
         dyn Fn(Option<&str>) -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync>
             + Send
@@ -115,6 +116,7 @@ pub fn assemble_agent(
     });
 
     // 系统提示词构建器
+    #[allow(clippy::type_complexity)]
     let system_builder: Arc<
         dyn Fn(Option<&rust_agent_middlewares::AgentOverrides>, &str) -> String + Send + Sync,
     > = Arc::new(|overrides, cwd_dir| {

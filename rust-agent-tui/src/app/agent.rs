@@ -189,6 +189,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     // model_alias: None 表示继承父模型；有值时通过 from_config_for_alias 解析
     let provider_clone = provider_for_factory;
     let config_for_factory = zen_config;
+    #[allow(clippy::type_complexity)]
     let llm_factory: Arc<
         dyn Fn(Option<&str>) -> Box<dyn rust_create_agent::agent::react::ReactLLM + Send + Sync>
             + Send
@@ -209,6 +210,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     });
 
     // 系统提示构建器：根据 agent overrides 构建包含 tone/proactiveness 的完整系统提示
+    #[allow(clippy::type_complexity)]
     let system_builder: Arc<
         dyn Fn(Option<&rust_agent_middlewares::AgentOverrides>, &str) -> String + Send + Sync,
     > = Arc::new(|overrides, cwd| {
