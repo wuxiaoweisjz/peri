@@ -761,6 +761,10 @@ mod tests {
             ACPX_OUTPUT_ENV.to_string(),
             output_path.to_str().unwrap().to_string(),
         );
+        // Platform-appropriate script for appending to the output file
+        #[cfg(target_os = "windows")]
+        let script = "echo workdir=./workspace/test-uuid >> %ACPX_OUTPUT%";
+        #[cfg(not(target_os = "windows"))]
         let script = "echo 'workdir=./workspace/test-uuid' >> $ACPX_OUTPUT";
         let result = execute_shell_command(script, &env, Some(10), None).await;
         assert!(result.is_ok());

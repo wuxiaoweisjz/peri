@@ -2913,7 +2913,7 @@ mod tests {
     async fn test_subagent_group_preserved_after_done_reconcile() {
         use rust_create_agent::messages::{BaseMessage, MessageContent, ToolCallRequest};
 
-        let (mut app, mut handle) = App::new_headless(120, 30).await;
+        let (mut app, handle) = App::new_headless(120, 30).await;
 
         // 1. 模拟 AI 文本
         let n = handle.render_notify.notified();
