@@ -29,6 +29,56 @@ use crate::ui::message_view::{
 };
 use crate::ui::theme;
 
+/// 从旧 view_messages 中提取 SubAgentGroup 的富状态（recent_messages、total_steps 等），
+/// 合并到 reconcile 重建后的新 VMs 中，防止 Done 后 SubAgent 显示退化。
+fn merge_subagent_state(old_vms: &[MessageViewModel], new_vms: &mut [MessageViewModel]) {
+    // 按顺序收集旧 VMs 中的 SubAgentGroup（保留出现顺序用于位置匹配）
+    let mut old_subs: Vec<&MessageViewModel> = Vec::new();
+    for vm in old_vms {
+        if matches!(vm, MessageViewModel::SubAgentGroup { .. }) {
+            old_subs.push(vm);
+        }
+    }
+
+    if old_subs.is_empty() {
+        return;
+    }
+
+    // 按位置匹配：新 VMs 中第 N 个 SubAgentGroup 对应旧 VMs 中第 N 个
+    let mut old_idx = 0;
+    for vm in new_vms.iter_mut() {
+        if let MessageViewModel::SubAgentGroup {
+            agent_id,
+            task_preview,
+            ..
+        } = vm
+        {
+            if old_idx < old_subs.len() {
+                if let MessageViewModel::SubAgentGroup {
+                    recent_messages,
+                    total_steps,
+                    final_result,
+                    is_error,
+                    ..
+                } = old_subs[old_idx]
+                {
+                    *vm = MessageViewModel::SubAgentGroup {
+                        agent_id: std::mem::take(agent_id),
+                        task_preview: std::mem::take(task_preview),
+                        total_steps: *total_steps,
+                        recent_messages: recent_messages.clone(),
+                        is_running: false,
+                        collapsed: false,
+                        final_result: final_result.clone(),
+                        is_error: *is_error,
+                    };
+                }
+                old_idx += 1;
+            }
+        }
+    }
+}
+
 // ─── 管线事件 ────────────────────────────────────────────────────────────────
 
 /// 管线处理事件后的输出动作
@@ -626,6 +676,20 @@ impl MessagePipeline {
         let tail_vms = Self::messages_to_view_models(&self.completed[last_human_idx..], &self.cwd);
 
         (round_start_vm_idx, tail_vms)
+    }
+
+    /// Reconcile 尾部，同时保留流式期间构建的 SubAgentGroup 富状态。
+    ///
+    /// 在 Done/Interrupted 时调用，避免 SubAgent 显示从「展开+滑动窗口」
+    /// 退化为「折叠+空内容」。
+    pub fn reconcile_tail_with_subagents(
+        &self,
+        round_start_vm_idx: usize,
+        old_view_messages: &[MessageViewModel],
+    ) -> (usize, Vec<MessageViewModel>) {
+        let (prefix_len, mut tail_vms) = self.reconcile_tail(round_start_vm_idx);
+        merge_subagent_state(old_view_messages, &mut tail_vms);
+        (prefix_len, tail_vms)
     }
 
     // ─── 内部方法 ─────────────────────────────────────────────────────────

@@ -2904,4 +2904,139 @@ mod tests {
             snap.join("\n")
         );
     }
+
+    // ── SubAgentGroup Reconcile Preservation ──────────────────────────────────
+
+    /// 验证 Done reconcile 后 SubAgentGroup 富状态（recent_messages、total_steps、collapsed）
+    /// 不会退化为最小化状态。
+    #[tokio::test]
+    async fn test_subagent_group_preserved_after_done_reconcile() {
+        use rust_create_agent::messages::{BaseMessage, MessageContent, ToolCallRequest};
+
+        let (mut app, mut handle) = App::new_headless(120, 30);
+
+        // 1. 模拟 AI 文本
+        let n = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::AssistantChunk("I'll use a sub-agent".into()));
+        app.process_pending_events();
+        let _ = n;
+
+        // 2. SubAgentStart
+        let n = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::SubAgentStart {
+            agent_id: "code-reviewer".into(),
+            task_preview: "review the code".into(),
+            is_background: false,
+        });
+        app.process_pending_events();
+        let _ = n;
+
+        // 3. SubAgent 内部 tool calls
+        let n1 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::ToolStart {
+            tool_call_id: "sa_tc1".into(),
+            name: "Read".into(),
+            display: "Read".into(),
+            args: "file.rs".into(),
+            input: serde_json::json!({"file_path": "/tmp/file.rs"}),
+        });
+        app.process_pending_events();
+        let _ = n1;
+
+        let n2 = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::ToolEnd {
+            tool_call_id: "sa_tc1".into(),
+            name: "Read".into(),
+            output: "file content".into(),
+            is_error: false,
+        });
+        app.process_pending_events();
+        let _ = n2;
+
+        // 4. SubAgentEnd
+        let n = handle.render_notify.notified();
+        app.push_agent_event(AgentEvent::SubAgentEnd {
+            result: "review complete".into(),
+            is_error: false,
+        });
+        app.process_pending_events();
+        let _ = n;
+
+        // 5. 记录 Done 前 SubAgentGroup 状态
+        let pre_done_sub = app.sessions[app.active]
+            .core
+            .view_messages
+            .iter()
+            .find(|m| m.is_subagent_group())
+            .cloned();
+        assert!(pre_done_sub.is_some(), "Done 前应有 SubAgentGroup");
+
+        let (pre_steps, pre_recent_len, pre_collapsed) = match &pre_done_sub {
+            Some(MessageViewModel::SubAgentGroup {
+                total_steps,
+                recent_messages,
+                collapsed,
+                ..
+            }) => (*total_steps, recent_messages.len(), *collapsed),
+            _ => (0, 0, true),
+        };
+        assert_eq!(pre_steps, 1, "Done 前 total_steps 应为 1（1 个 ToolStart）");
+        assert_eq!(pre_recent_len, 1, "Done 前 recent_messages 应有 1 条");
+        assert!(!pre_collapsed, "Done 前 collapsed 应为 false");
+
+        // 6. StateSnapshot（模拟 BaseMessage 层面的数据）
+        app.push_agent_event(AgentEvent::StateSnapshot(vec![
+            BaseMessage::ai_with_tool_calls(
+                MessageContent::text("I'll use a sub-agent"),
+                vec![ToolCallRequest::new(
+                    "subagent_code-reviewer",
+                    "Agent",
+                    serde_json::json!({"subagent_type": "code-reviewer", "prompt": "review the code"}),
+                )],
+            ),
+            BaseMessage::tool_result("subagent_code-reviewer", "review complete"),
+        ]));
+        app.process_pending_events();
+
+        // 7. Done → reconcile
+        app.push_agent_event(AgentEvent::Done);
+        app.process_pending_events();
+
+        // 8. 验证 Done 后 SubAgentGroup 状态保留
+        let post_done_sub = app.sessions[app.active]
+            .core
+            .view_messages
+            .iter()
+            .find(|m| m.is_subagent_group())
+            .cloned();
+        assert!(post_done_sub.is_some(), "Done 后应有 SubAgentGroup");
+
+        if let Some(MessageViewModel::SubAgentGroup {
+            total_steps,
+            recent_messages,
+            collapsed,
+            is_running,
+            ..
+        }) = &post_done_sub
+        {
+            assert_eq!(
+                *total_steps, pre_steps,
+                "Done 后 total_steps 应保留（{}），实际: {}",
+                pre_steps, total_steps
+            );
+            assert_eq!(
+                recent_messages.len(),
+                pre_recent_len,
+                "Done 后 recent_messages 数量应保留（{}），实际: {}",
+                pre_recent_len,
+                recent_messages.len()
+            );
+            assert_eq!(
+                *collapsed, pre_collapsed,
+                "Done 后 collapsed 应保留（{}），实际: {}",
+                pre_collapsed, collapsed
+            );
+            assert!(!*is_running, "Done 后 is_running 应为 false");
+        }
+    }
 }

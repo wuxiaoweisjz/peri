@@ -340,7 +340,7 @@ impl MessageViewModel {
                     .map(|(_, name, input)| (name.clone(), input.clone()))
                     .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
                 let raw_content = content.text_content();
-                // Agent 工具恢复为 SubAgentGroup（完成状态，折叠）
+                // Agent 工具恢复为 SubAgentGroup（完成状态，展开显示 final_result）
                 if tool_name == "Agent" {
                     let agent_id = input["subagent_type"]
                         .as_str()
@@ -355,10 +355,10 @@ impl MessageViewModel {
                     return MessageViewModel::SubAgentGroup {
                         agent_id,
                         task_preview,
-                        total_steps: 0,              // 历史恢复时无法得知总步数
+                        total_steps: parse_subagent_tool_count(&raw_content),
                         recent_messages: Vec::new(), // 子 agent 内部消息不持久化
                         is_running: false,
-                        collapsed: true,
+                        collapsed: false, // 展开显示 final_result
                         final_result: Some(raw_content),
                         is_error: *is_error,
                     };
@@ -524,6 +524,34 @@ impl MessageViewModel {
     pub fn is_subagent_group(&self) -> bool {
         matches!(self, MessageViewModel::SubAgentGroup { .. })
     }
+}
+
+/// 从 SubAgent 返回结果中解析工具调用次数。
+///
+/// `format_subagent_result()` 输出格式：`[Sub-agent executed N tool calls: ...]`
+/// 或中文版 `[子 agent 执行了 N 个工具调用: ...]`。
+/// 解析失败时返回 0（优雅降级）。
+fn parse_subagent_tool_count(content: &str) -> usize {
+    // 英文格式: "[Sub-agent executed N tool calls: ...]"
+    if let Some(rest) = content.strip_prefix("[Sub-agent executed ") {
+        if let Some(n_str) = rest.split(' ').next() {
+            if let Ok(n) = n_str.parse::<usize>() {
+                return n;
+            }
+        }
+    }
+    // 中文格式: "[子 agent 执行了 N 个工具调用: ...]"
+    if let Some(rest) = content
+        .strip_prefix("[子 agent 执行了 ")
+        .or_else(|| content.strip_prefix("[子agent 执行了 "))
+    {
+        if let Some(n_str) = rest.split(' ').next() {
+            if let Ok(n) = n_str.parse::<usize>() {
+                return n;
+            }
+        }
+    }
+    0
 }
 
 /// 按工具名分配颜色（按操作类型分色）

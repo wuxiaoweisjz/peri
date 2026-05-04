@@ -652,11 +652,14 @@ impl App {
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
-                // reconcile 尾部重建：确保流式最终状态与恢复路径一致
+                // reconcile 尾部重建：保留 SubAgentGroup 富状态，防止显示退化
                 let (prefix_len, tail_vms) = self.sessions[self.active]
                     .core
                     .pipeline
-                    .reconcile_tail(self.sessions[self.active].core.round_start_vm_idx);
+                    .reconcile_tail_with_subagents(
+                        self.sessions[self.active].core.round_start_vm_idx,
+                        &self.sessions[self.active].core.view_messages,
+                    );
                 self.apply_pipeline_action(PipelineAction::RebuildAll {
                     prefix_len,
                     tail_vms,
@@ -773,11 +776,14 @@ impl App {
                         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
                     }
                 } else {
-                    // Agent 已回复部分内容，走正常的 reconcile 尾部重建
+                    // Agent 已回复部分内容，走正常的 reconcile 尾部重建（保留 SubAgentGroup 富状态）
                     let (prefix_len, tail_vms) = self.sessions[self.active]
                         .core
                         .pipeline
-                        .reconcile_tail(self.sessions[self.active].core.round_start_vm_idx);
+                        .reconcile_tail_with_subagents(
+                            self.sessions[self.active].core.round_start_vm_idx,
+                            &self.sessions[self.active].core.view_messages,
+                        );
                     self.apply_pipeline_action(PipelineAction::RebuildAll {
                         prefix_len,
                         tail_vms,

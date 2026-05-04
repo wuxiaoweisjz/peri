@@ -692,6 +692,9 @@ impl BaseTool for SubAgentTool {
 /// Summary format:
 /// - If tool calls exist, list tool names (excluding intermediate results to avoid token bloat)
 /// - Preserve final answer text
+///
+/// **注意**：输出格式被 TUI (`message_view.rs`) 解析以提取工具调用次数。
+/// 修改此格式时需同步更新 `parse_subagent_tool_count()`。
 fn format_subagent_result(output: &rust_create_agent::agent::react::AgentOutput) -> String {
     if output.tool_calls.is_empty() {
         return output.text.clone();
