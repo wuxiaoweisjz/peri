@@ -22,7 +22,7 @@ pub fn validate_workflow(wf: &Workflow) -> anyhow::Result<()> {
         anyhow::bail!("workflow must have at least one node");
     }
 
-    // Validate node IDs are non-empty
+    // Validate node IDs are non-empty and nodes don't depend on themselves
     for node in &wf.nodes {
         let id = match node {
             NodeDef::Shell(n) => &n.id,
@@ -31,6 +31,14 @@ pub fn validate_workflow(wf: &Workflow) -> anyhow::Result<()> {
         };
         if id.trim().is_empty() {
             anyhow::bail!("node id must not be empty");
+        }
+        let depends = match node {
+            NodeDef::Shell(n) => &n.depends,
+            NodeDef::Agent(n) => &n.depends,
+            NodeDef::Reference(n) => &n.depends,
+        };
+        if depends.iter().any(|d| d == id) {
+            anyhow::bail!("node '{}' cannot depend on itself", id);
         }
     }
 
@@ -634,5 +642,116 @@ nodes:
             ResolvedScript::File(p) => assert_eq!(p, "./linux.sh"),
             _ => panic!("expected File"),
         }
+    }
+
+    #[test]
+    fn test_parse_workflow_self_dependency() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes:
+  - id: loop
+    type: shell
+    depends: [loop]
+    run: echo hello
+"#;
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err.to_string().contains("cannot depend on itself"));
+    }
+
+    #[test]
+    fn test_parse_workflow_multiple_nodes_valid_deps() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes:
+  - id: build
+    type: shell
+    run: echo build
+  - id: test
+    type: shell
+    depends: [build]
+    run: echo test
+  - id: deploy
+    type: shell
+    depends: [test]
+    run: echo deploy
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        assert_eq!(wf.nodes.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_workflow_with_inputs() {
+        let yaml = r#"
+name: test
+version: "1.0"
+inputs:
+  env:
+    type: string
+    default: staging
+  count:
+    type: number
+    required: true
+nodes:
+  - id: greet
+    type: shell
+    run: echo {{ inputs.env }}
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        assert!(wf.inputs.contains_key("env"));
+        assert!(wf.inputs.contains_key("count"));
+        assert!(wf.inputs["count"].required);
+        assert_eq!(wf.inputs["env"].default.as_deref(), Some("staging"));
+    }
+
+    #[test]
+    fn test_parse_workflow_with_env() {
+        let yaml = r#"
+name: test
+version: "1.0"
+env:
+  FOO: bar
+  BAZ: qux
+nodes:
+  - id: greet
+    type: shell
+    run: echo $FOO
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        assert_eq!(wf.env.get("FOO").unwrap(), "bar");
+        assert_eq!(wf.env.get("BAZ").unwrap(), "qux");
+    }
+
+    #[test]
+    fn test_parse_workflow_defaults() {
+        let yaml = r#"
+name: test
+version: "1.0"
+defaults:
+  retry: 3
+  timeout: 600
+nodes:
+  - id: greet
+    type: shell
+    run: echo hello
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        assert_eq!(wf.defaults.retry, 3);
+        assert_eq!(wf.defaults.timeout, 600);
+    }
+
+    #[test]
+    fn test_parse_workflow_empty_node_id() {
+        let yaml = r#"
+name: test
+version: "1.0"
+nodes:
+  - id: ""
+    type: shell
+    run: echo hello
+"#;
+        let err = parse_workflow(yaml).unwrap_err();
+        assert!(err.to_string().contains("node id must not be empty"));
     }
 }

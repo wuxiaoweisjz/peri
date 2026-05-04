@@ -267,6 +267,14 @@ pub async fn submit_workflow(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SubmitWorkflowRequest>,
 ) -> impl IntoResponse {
+    // Reject empty YAML early
+    if req.yaml.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "yaml field must not be empty"})),
+        );
+    }
+
     // Parse to get metadata
     let wf = match crate::schema::parse_workflow(&req.yaml) {
         Ok(w) => w,

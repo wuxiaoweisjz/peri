@@ -12,11 +12,15 @@ use crate::schema::{NodeDef, Platform};
 
 /// Execute a single node and persist results to DB.
 /// Returns the resolved outputs map on success.
+/// `default_timeout` and `default_retry` from `NodeDefaults` are used when the
+/// node's own `ExecConfig` doesn't specify a value.
 pub async fn execute_node(
     pool: &SqlitePool,
     run_id: &str,
     node: &NodeDef,
     ctx: &TemplateContext,
+    default_timeout: u64,
+    default_retry: u32,
 ) -> anyhow::Result<HashMap<String, String>> {
     let nid = node_id(node);
     let node_run = NodeRun::find_by_run_and_node(pool, run_id, nid)
@@ -32,13 +36,15 @@ pub async fn execute_node(
             let raw_script = load_script(&resolved)?;
             let script = interpolate(&raw_script, ctx);
             let env = build_env(&shell.env, ctx);
+            let timeout = shell.exec.timeout.unwrap_or(default_timeout);
+            let retry = shell.exec.retry.unwrap_or(default_retry);
             run_shell(
                 pool,
                 &node_run_id,
                 &script,
                 &env,
-                shell.exec.timeout,
-                shell.exec.retry,
+                Some(timeout),
+                Some(retry),
             )
             .await
         }
@@ -48,6 +54,8 @@ pub async fn execute_node(
             let prompt = interpolate(&raw_prompt, ctx);
             let cwd = agent.cwd.as_deref().map(|c| interpolate(c, ctx));
             let env = build_env(&agent.env, ctx);
+            let timeout = agent.exec.timeout.unwrap_or(default_timeout);
+            let retry = agent.exec.retry.unwrap_or(default_retry);
             run_agent(
                 pool,
                 &node_run_id,
@@ -56,8 +64,8 @@ pub async fn execute_node(
                 agent.model.as_deref(),
                 cwd.as_deref(),
                 &env,
-                agent.exec.timeout,
-                agent.exec.retry,
+                Some(timeout),
+                Some(retry),
             )
             .await
         }

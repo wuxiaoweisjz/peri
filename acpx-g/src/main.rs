@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref workflow_dir) = cli.workflow_dir {
         tracing::info!(dir = %workflow_dir, "starting workflow directory watcher");
         tokio::spawn(watcher::watch_directory(
-            pool,
+            pool.clone(),
             templates,
             workflow_dir.clone(),
         ));
@@ -75,7 +75,33 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("acpx-g http://{addr}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+
+    // Graceful shutdown: on Ctrl+C, stop accepting new connections and
+    // mark any running workflows as failed in the DB.
+    let shutdown_pool = pool.clone();
+    let shutdown = async move {
+        tokio::signal::ctrl_c().await.ok();
+        tracing::info!("shutting down gracefully...");
+        // Mark any still-running workflows as failed
+        let running =
+            sqlx::query_as::<_, (String,)>("SELECT id FROM workflow_runs WHERE status = 'running'")
+                .fetch_all(&*shutdown_pool)
+                .await
+                .unwrap_or_default();
+        for (id,) in running {
+            tracing::warn!(run_id = %id, "marking running workflow as failed due to shutdown");
+            let _ = sqlx::query(
+                "UPDATE workflow_runs SET status = 'failed', error_message = 'server shutdown', finished_at = datetime('now') WHERE id = ?",
+            )
+            .bind(&id)
+            .execute(&*shutdown_pool)
+            .await;
+        }
+    };
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
 
     Ok(())
 }

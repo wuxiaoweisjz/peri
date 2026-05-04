@@ -52,6 +52,7 @@ async fn execute_dag(
     inputs: &HashMap<String, String>,
 ) -> anyhow::Result<()> {
     let nodes = &wf.nodes;
+    let defaults = &wf.defaults;
 
     WorkflowRun::set_started(&pool, run_id).await?;
 
@@ -114,10 +115,13 @@ async fn execute_dag(
             let semaphore = semaphore.clone();
             let run_id = run_id.to_string();
             let node = node.clone();
+            let default_timeout = defaults.timeout;
+            let default_retry = defaults.retry;
 
             let task = tokio::spawn(async move {
                 let _permit = semaphore.acquire().await.unwrap();
-                executor::execute_node(&pool, &run_id, &node, &ctx).await
+                executor::execute_node(&pool, &run_id, &node, &ctx, default_timeout, default_retry)
+                    .await
             });
 
             tasks.push((idx, task));

@@ -52,11 +52,12 @@ impl WorkflowRun {
             None
         };
         sqlx::query(
-            "UPDATE workflow_runs SET status = ?, error_message = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?",
+            "UPDATE workflow_runs SET status = ?, error_message = ?, finished_at = COALESCE(?, finished_at), started_at = COALESCE(started_at, ?) WHERE id = ?",
         )
         .bind(status)
         .bind(error_message)
         .bind(finished)
+        .bind(&now)
         .bind(id)
         .execute(pool)
         .await?;
