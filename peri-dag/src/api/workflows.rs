@@ -312,7 +312,15 @@ pub async fn run_template(
     };
 
     // Validate and apply inputs from request body
-    let inputs = validate_inputs(&wf.inputs, &inputs_opt).unwrap_or_default();
+    let inputs = match validate_inputs(&wf.inputs, &inputs_opt) {
+        Ok(i) => i,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("invalid inputs: {e}")})),
+            );
+        }
+    };
 
     // Load and expand references
     let expanded_wf = match runner::load_workflow(&template.file_path, inputs).await {
