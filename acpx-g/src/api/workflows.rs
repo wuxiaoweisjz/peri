@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -14,6 +14,22 @@ use crate::db::{
     WorkflowRun, WorkflowRunResponse,
 };
 use crate::runner;
+
+/// Query parameters for list_workflows pagination.
+#[derive(Debug, serde::Deserialize)]
+pub struct ListWorkflowsQuery {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_per_page")]
+    pub per_page: i64,
+}
+
+fn default_page() -> i64 {
+    1
+}
+fn default_per_page() -> i64 {
+    50
+}
 
 /// A workflow template discovered in the watch directory.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -52,7 +68,7 @@ pub struct AppState {
     pub templates: Arc<RwLock<Vec<WorkflowTemplate>>>,
 }
 
-/// Create run + node records in DB, then start async execution.
+/// Create run + node records in DB inside a transaction, then start async execution.
 /// Shared by submit_workflow, run_template, and watcher.
 pub async fn create_and_start_run(
     pool: &SqlitePool,
@@ -61,6 +77,9 @@ pub async fn create_and_start_run(
     yaml_content: String,
 ) -> anyhow::Result<String> {
     let run_id = Uuid::now_v7().to_string();
+
+    // Use a transaction to ensure atomicity: either all records are created or none
+    let mut tx = pool.begin().await?;
 
     let run = WorkflowRun {
         id: run_id.clone(),
@@ -75,34 +94,58 @@ pub async fn create_and_start_run(
         error_message: None,
     };
 
-    run.insert(pool).await?;
+    // Insert workflow run within transaction
+    sqlx::query(
+        "INSERT INTO workflow_runs (id, workflow_name, workflow_version, yaml_content, status, node_count, started_at, finished_at, created_at, error_message)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&run.id)
+    .bind(&run.workflow_name)
+    .bind(&run.workflow_version)
+    .bind(&run.yaml_content)
+    .bind(&run.status)
+    .bind(run.node_count)
+    .bind(&run.started_at)
+    .bind(&run.finished_at)
+    .bind(&run.created_at)
+    .bind(&run.error_message)
+    .execute(&mut *tx)
+    .await?;
 
     for node in &expanded_wf.nodes {
         let deps = runner::node_depends(node);
-        let node_run = NodeRun {
-            id: Uuid::now_v7().to_string(),
-            run_id: run_id.clone(),
-            node_id: runner::node_id(node).to_string(),
-            node_type: runner::node_type_name(node).to_string(),
-            status: "pending".to_string(),
-            attempt: 0,
-            started_at: None,
-            finished_at: None,
-            exit_code: None,
-            stdout: None,
-            stderr: None,
-            error_message: None,
-            outputs: None,
-            depends: if deps.is_empty() {
-                None
-            } else {
-                Some(serde_json::to_string(deps).unwrap())
-            },
+        let node_run_id = Uuid::now_v7().to_string();
+        let node_id = runner::node_id(node).to_string();
+        let node_type = runner::node_type_name(node).to_string();
+        let depends_json = if deps.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(deps).unwrap())
         };
-        if let Err(e) = node_run.insert(pool).await {
-            tracing::error!(error = %e, "failed to insert node_run");
-        }
+
+        sqlx::query(
+            "INSERT INTO node_runs (id, run_id, node_id, node_type, status, attempt, started_at, finished_at, exit_code, stdout, stderr, error_message, outputs, depends)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&node_run_id)
+        .bind(&run_id)
+        .bind(&node_id)
+        .bind(&node_type)
+        .bind("pending")
+        .bind(0i64)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<i64>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(&depends_json)
+        .execute(&mut *tx)
+        .await?;
     }
+
+    tx.commit().await?;
 
     let root_inputs = expanded_wf
         .reference_inputs
@@ -271,19 +314,32 @@ pub async fn submit_workflow(
 
 // ─── GET /api/v1/workflows ───────────────────────────────────────
 
-pub async fn list_workflows(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match WorkflowRun::list(&state.pool, 50).await {
-        Ok(runs) => {
+pub async fn list_workflows(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ListWorkflowsQuery>,
+) -> impl IntoResponse {
+    let page = params.page.max(1);
+    let per_page = params.per_page.clamp(1, 100);
+    let offset = (page - 1) * per_page;
+
+    match (
+        WorkflowRun::list(&state.pool, per_page, offset).await,
+        WorkflowRun::count(&state.pool).await,
+    ) {
+        (Ok(runs), Ok(total)) => {
             let response_runs: Vec<WorkflowRunResponse> =
                 runs.into_iter().map(WorkflowRunResponse::from).collect();
             (
                 StatusCode::OK,
                 Json(serde_json::json!(ListRunsResponse {
                     runs: response_runs,
+                    total,
+                    page,
+                    per_page,
                 })),
             )
         }
-        Err(e) => (
+        (Err(e), _) | (_, Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("{e}")})),
         ),

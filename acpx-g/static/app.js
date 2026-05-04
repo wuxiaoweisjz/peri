@@ -7,6 +7,8 @@ let allTemplates = [];
 let refreshTimer = null;
 let dagZoom = 1, dagPanX = 0, dagPanY = 0;
 let dragging = false, dragStart = {};
+let currentPage = 1;
+let totalPages = 1;
 
 // ── Toast notifications ──────────────────────────────────────────────
 function showToast(msg, type='error') {
@@ -209,13 +211,17 @@ async function runTemplate(name) {
 }
 
 // ── Runs ────────────────────────────────────────────────────────────
-async function loadRuns() {
+async function loadRuns(page) {
+  if (page !== undefined) currentPage = page;
   const el = document.getElementById('run-list');
   try {
-    const r = await fetch(API_WF);
+    const r = await fetch(`${API_WF}?page=${currentPage}&per_page=50`);
     const d = await r.json();
     const runs = d.runs || [];
-    document.getElementById('run-count').textContent = runs.length ? `${runs.length} total` : '';
+    const total = d.total || 0;
+    const perPage = d.per_page || 50;
+    totalPages = Math.max(1, Math.ceil(total / perPage));
+    document.getElementById('run-count').textContent = total ? `${total} total · page ${currentPage}/${totalPages}` : '';
     if (!runs.length) { el.innerHTML = '<div class="log-empty" style="padding:24px">No runs yet</div>'; return; }
     el.innerHTML = runs.map(run => {
       const cls = run.id === selectedRunId ? 'run-item active' : 'run-item';
@@ -229,6 +235,15 @@ async function loadRuns() {
         </div>
       </div>`;
     }).join('');
+
+    // Pagination controls
+    if (totalPages > 1) {
+      el.innerHTML += `<div class="pagination">
+        <button class="btn btn-sm" onclick="loadRuns(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>&#9664; Prev</button>
+        <span style="font-size:11px;color:var(--text2)">${currentPage} / ${totalPages}</span>
+        <button class="btn btn-sm" onclick="loadRuns(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>Next &#9654;</button>
+      </div>`;
+    }
 
     // Event delegation for run items
     el.querySelectorAll('.run-item').forEach(item => {

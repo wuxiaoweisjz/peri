@@ -16,7 +16,16 @@ use crate::schema::{NodeDef, Workflow};
 pub use loader::load_workflow;
 pub use loader::load_workflow_from_content;
 
-const MAX_CONCURRENT_NODES: usize = 16;
+const DEFAULT_MAX_CONCURRENT_NODES: usize = 16;
+
+/// Read max concurrent nodes from env `ACPX_MAX_CONCURRENT`, fallback to default.
+fn max_concurrent_nodes() -> usize {
+    std::env::var("ACPX_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_MAX_CONCURRENT_NODES)
+        .max(1)
+}
 
 /// Run a workflow to completion asynchronously.
 /// This spawns the actual execution so the caller (HTTP handler) can return immediately.
@@ -54,7 +63,7 @@ async fn execute_dag(
         .map(|(i, n)| (node_id(n), i))
         .collect();
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_NODES));
+    let semaphore = Arc::new(Semaphore::new(max_concurrent_nodes()));
 
     let mut completed: HashSet<usize> = HashSet::new();
     let mut failed: HashSet<usize> = HashSet::new();
@@ -344,5 +353,25 @@ mod tests {
         assert!(node_continue_on_error(&node));
         let node2 = make_shell_node("y", vec![], false);
         assert!(!node_continue_on_error(&node2));
+    }
+
+    #[test]
+    fn test_max_concurrent_nodes_default() {
+        std::env::remove_var("ACPX_MAX_CONCURRENT");
+        assert_eq!(max_concurrent_nodes(), 16);
+    }
+
+    #[test]
+    fn test_max_concurrent_nodes_custom() {
+        std::env::set_var("ACPX_MAX_CONCURRENT", "32");
+        assert_eq!(max_concurrent_nodes(), 32);
+        std::env::remove_var("ACPX_MAX_CONCURRENT");
+    }
+
+    #[test]
+    fn test_max_concurrent_nodes_minimum() {
+        std::env::set_var("ACPX_MAX_CONCURRENT", "0");
+        assert_eq!(max_concurrent_nodes(), 1);
+        std::env::remove_var("ACPX_MAX_CONCURRENT");
     }
 }

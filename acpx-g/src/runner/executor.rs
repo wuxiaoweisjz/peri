@@ -28,7 +28,6 @@ pub async fn execute_node(
 
     let result = match node {
         NodeDef::Shell(shell) => {
-            // Interpolate script content
             let resolved = shell.run.resolve(platform)?;
             let raw_script = load_script(&resolved)?;
             let script = interpolate(&raw_script, ctx);
@@ -63,12 +62,10 @@ pub async fn execute_node(
             .await
         }
         NodeDef::Reference(_) => {
-            // Should not happen — references are expanded at load time
             anyhow::bail!("unexpected reference node (should be expanded at load time)")
         }
     };
 
-    // On success, resolve and persist outputs
     if result.is_ok() {
         let outputs = get_node_outputs(node, ctx);
         if !outputs.is_empty() {
@@ -90,15 +87,24 @@ fn get_node_outputs(node: &NodeDef, ctx: &TemplateContext) -> HashMap<String, St
     interpolate_map(raw, ctx)
 }
 
-// ─── Shell Execution ──────────────────────────────────────────────
+// ─── Generic Retry Executor ──────────────────────────────────────
 
-async fn run_shell(
+/// Result of a single command execution attempt.
+struct AttemptResult {
+    exit_code: i64,
+    stdout: String,
+    stderr: String,
+}
+
+/// Generic retry loop: execute a command with exponential backoff.
+/// Accumulates stdout/stderr across attempts and persists state to DB.
+async fn execute_with_retry(
     pool: &SqlitePool,
     node_run_id: &str,
-    script: &str,
-    env: &HashMap<String, String>,
-    timeout_secs: Option<u64>,
     retries: Option<u32>,
+    execute_fn: impl Fn() -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<AttemptResult>> + Send>,
+    >,
 ) -> anyhow::Result<()> {
     let max_attempts = retries.unwrap_or(0) + 1;
     let mut last_error = None;
@@ -114,35 +120,38 @@ async fn run_shell(
 
         NodeRun::set_started(pool, node_run_id).await?;
 
-        let result = execute_shell_command(script, env, timeout_secs).await;
-
-        match result {
-            Ok((exit_code, stdout, stderr)) => {
-                // Append attempt output to accumulated buffers
+        match execute_fn().await {
+            Ok(result) => {
                 if attempt > 0 {
                     accumulated_stdout.push_str(&format!("--- Attempt {} ---\n", attempt + 1));
                     accumulated_stderr.push_str(&format!("--- Attempt {} ---\n", attempt + 1));
                 }
-                accumulated_stdout.push_str(&stdout);
-                accumulated_stderr.push_str(&stderr);
+                accumulated_stdout.push_str(&result.stdout);
+                accumulated_stderr.push_str(&result.stderr);
 
-                let status = if exit_code == 0 { "success" } else { "failed" };
+                let status = if result.exit_code == 0 {
+                    "success"
+                } else {
+                    "failed"
+                };
                 NodeRun::update_result(
                     pool,
                     node_run_id,
                     status,
-                    Some(exit_code),
+                    Some(result.exit_code),
                     Some(&accumulated_stdout),
                     Some(&accumulated_stderr),
                     None,
                 )
                 .await?;
 
-                if exit_code == 0 {
+                if result.exit_code == 0 {
                     return Ok(());
                 }
                 last_error = Some(anyhow::anyhow!(
-                    "shell exited with code {exit_code}\nstderr: {stderr}"
+                    "command exited with code {}\nstderr: {}",
+                    result.exit_code,
+                    result.stderr
                 ));
             }
             Err(e) => {
@@ -152,7 +161,7 @@ async fn run_shell(
         }
     }
 
-    let err = last_error.unwrap_or_else(|| anyhow::anyhow!("shell execution failed"));
+    let err = last_error.unwrap_or_else(|| anyhow::anyhow!("execution failed"));
     NodeRun::update_result(
         pool,
         node_run_id,
@@ -164,6 +173,35 @@ async fn run_shell(
     )
     .await?;
     Err(err)
+}
+
+// ─── Shell Execution ──────────────────────────────────────────────
+
+async fn run_shell(
+    pool: &SqlitePool,
+    node_run_id: &str,
+    script: &str,
+    env: &HashMap<String, String>,
+    timeout_secs: Option<u64>,
+    retries: Option<u32>,
+) -> anyhow::Result<()> {
+    let script = script.to_string();
+    let env = env.clone();
+
+    execute_with_retry(pool, node_run_id, retries, move || {
+        let script = script.clone();
+        let env = env.clone();
+        Box::pin(async move {
+            let (exit_code, stdout, stderr) =
+                execute_shell_command(&script, &env, timeout_secs).await?;
+            Ok(AttemptResult {
+                exit_code,
+                stdout,
+                stderr,
+            })
+        })
+    })
+    .await
 }
 
 async fn execute_shell_command(
@@ -190,7 +228,6 @@ async fn execute_shell_command(
             Ok(Ok(o)) => o,
             Ok(Err(e)) => return Err(e).context("shell command failed"),
             Err(_) => {
-                // Timeout — process was killed by kill_on_drop
                 return Err(anyhow::anyhow!("shell command timed out after {}s", secs));
             }
         }
@@ -219,69 +256,36 @@ async fn run_agent(
     timeout_secs: Option<u64>,
     retries: Option<u32>,
 ) -> anyhow::Result<()> {
-    let max_attempts = retries.unwrap_or(0) + 1;
-    let mut last_error = None;
-    let mut accumulated_stdout = String::new();
-    let mut accumulated_stderr = String::new();
+    let prompt = prompt.to_string();
+    let agent_name = agent_name.map(|s| s.to_string());
+    let model = model.map(|s| s.to_string());
+    let cwd = cwd.map(|s| s.to_string());
+    let env = env.clone();
 
-    for attempt in 0..max_attempts {
-        sqlx::query("UPDATE node_runs SET attempt = ? WHERE id = ?")
-            .bind(attempt as i64)
-            .bind(node_run_id)
-            .execute(pool)
+    execute_with_retry(pool, node_run_id, retries, move || {
+        let prompt = prompt.clone();
+        let agent_name = agent_name.clone();
+        let model = model.clone();
+        let cwd = cwd.clone();
+        let env = env.clone();
+        Box::pin(async move {
+            let (exit_code, stdout, stderr) = execute_agent_command(
+                &prompt,
+                agent_name.as_deref(),
+                model.as_deref(),
+                cwd.as_deref(),
+                &env,
+                timeout_secs,
+            )
             .await?;
-
-        NodeRun::set_started(pool, node_run_id).await?;
-
-        let result = execute_agent_command(prompt, agent_name, model, cwd, env, timeout_secs).await;
-
-        match result {
-            Ok((exit_code, stdout, stderr)) => {
-                if attempt > 0 {
-                    accumulated_stdout.push_str(&format!("--- Attempt {} ---\n", attempt + 1));
-                    accumulated_stderr.push_str(&format!("--- Attempt {} ---\n", attempt + 1));
-                }
-                accumulated_stdout.push_str(&stdout);
-                accumulated_stderr.push_str(&stderr);
-
-                let status = if exit_code == 0 { "success" } else { "failed" };
-                NodeRun::update_result(
-                    pool,
-                    node_run_id,
-                    status,
-                    Some(exit_code),
-                    Some(&accumulated_stdout),
-                    Some(&accumulated_stderr),
-                    None,
-                )
-                .await?;
-
-                if exit_code == 0 {
-                    return Ok(());
-                }
-                last_error = Some(anyhow::anyhow!(
-                    "agent exited with code {exit_code}\nstderr: {stderr}"
-                ));
-            }
-            Err(e) => {
-                last_error = Some(e);
-                tokio::time::sleep(std::time::Duration::from_secs(1 << attempt)).await;
-            }
-        }
-    }
-
-    let err = last_error.unwrap_or_else(|| anyhow::anyhow!("agent execution failed"));
-    NodeRun::update_result(
-        pool,
-        node_run_id,
-        "failed",
-        None,
-        None,
-        None,
-        Some(&err.to_string()),
-    )
-    .await?;
-    Err(err)
+            Ok(AttemptResult {
+                exit_code,
+                stdout,
+                stderr,
+            })
+        })
+    })
+    .await
 }
 
 async fn execute_agent_command(
@@ -351,11 +355,9 @@ fn load_prompt(resolved: &crate::schema::ResolvedPrompt) -> anyhow::Result<Strin
 /// Build merged environment: process env + global env (interpolated) + node env (interpolated).
 fn build_env(node_env: &HashMap<String, String>, ctx: &TemplateContext) -> HashMap<String, String> {
     let mut env = HashMap::new();
-    // Inherit current process env
     for (k, v) in std::env::vars() {
         env.insert(k, v);
     }
-    // Interpolate and merge node-specific env
     let resolved = interpolate_map(node_env, ctx);
     for (k, v) in resolved {
         env.insert(k, v);
@@ -368,5 +370,163 @@ fn node_id(node: &NodeDef) -> &str {
         NodeDef::Shell(n) => &n.id,
         NodeDef::Agent(n) => &n.id,
         NodeDef::Reference(n) => &n.id,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_script_inline() {
+        let resolved = crate::schema::ResolvedScript::Inline("echo hello".to_string());
+        assert_eq!(load_script(&resolved).unwrap(), "echo hello");
+    }
+
+    #[test]
+    fn test_load_prompt_inline() {
+        let resolved = crate::schema::ResolvedPrompt::Inline("review code".to_string());
+        assert_eq!(load_prompt(&resolved).unwrap(), "review code");
+    }
+
+    #[test]
+    fn test_load_script_file_not_found() {
+        let resolved = crate::schema::ResolvedScript::File("/nonexistent/path.sh".to_string());
+        assert!(load_script(&resolved).is_err());
+    }
+
+    #[test]
+    fn test_build_env_inherits_process() {
+        let node_env = HashMap::new();
+        let ctx = TemplateContext {
+            inputs: HashMap::new(),
+            needs_outputs: HashMap::new(),
+            env: HashMap::new(),
+        };
+        let env = build_env(&node_env, &ctx);
+        // Should contain at least PATH
+        assert!(env.contains_key("PATH"));
+    }
+
+    #[test]
+    fn test_build_env_merges_node_env() {
+        let mut node_env = HashMap::new();
+        node_env.insert("CUSTOM_VAR".to_string(), "custom_value".to_string());
+        let ctx = TemplateContext {
+            inputs: HashMap::new(),
+            needs_outputs: HashMap::new(),
+            env: HashMap::new(),
+        };
+        let env = build_env(&node_env, &ctx);
+        assert_eq!(env.get("CUSTOM_VAR").unwrap(), "custom_value");
+    }
+
+    #[test]
+    fn test_build_env_interpolates_template() {
+        let mut node_env = HashMap::new();
+        node_env.insert("DEPLOY_ENV".to_string(), "{{ inputs.env }}".to_string());
+        let mut inputs = HashMap::new();
+        inputs.insert("env".to_string(), "production".to_string());
+        let ctx = TemplateContext {
+            inputs,
+            needs_outputs: HashMap::new(),
+            env: HashMap::new(),
+        };
+        let env = build_env(&node_env, &ctx);
+        assert_eq!(env.get("DEPLOY_ENV").unwrap(), "production");
+    }
+
+    #[test]
+    fn test_node_id_shell() {
+        let node = NodeDef::Shell(crate::schema::ShellNode {
+            id: "build".into(),
+            run: crate::schema::ScriptSource::Inline("echo".into()),
+            depends: vec![],
+            outputs: Default::default(),
+            env: Default::default(),
+            continue_on_error: false,
+            exec: crate::schema::ExecConfig {
+                timeout: None,
+                retry: None,
+                shell: None,
+            },
+        });
+        assert_eq!(node_id(&node), "build");
+    }
+
+    #[test]
+    fn test_node_id_agent() {
+        let node = NodeDef::Agent(crate::schema::AgentNode {
+            id: "review".into(),
+            prompt: crate::schema::PromptSource::Inline("review code".into()),
+            agent: None,
+            model: None,
+            cwd: None,
+            depends: vec![],
+            outputs: Default::default(),
+            env: Default::default(),
+            continue_on_error: false,
+            exec: crate::schema::ExecConfig {
+                timeout: None,
+                retry: None,
+                shell: None,
+            },
+        });
+        assert_eq!(node_id(&node), "review");
+    }
+
+    #[test]
+    fn test_get_node_outputs_empty() {
+        let node = NodeDef::Shell(crate::schema::ShellNode {
+            id: "build".into(),
+            run: crate::schema::ScriptSource::Inline("echo".into()),
+            depends: vec![],
+            outputs: Default::default(),
+            env: Default::default(),
+            continue_on_error: false,
+            exec: crate::schema::ExecConfig {
+                timeout: None,
+                retry: None,
+                shell: None,
+            },
+        });
+        let ctx = TemplateContext {
+            inputs: HashMap::new(),
+            needs_outputs: HashMap::new(),
+            env: HashMap::new(),
+        };
+        let outputs = get_node_outputs(&node, &ctx);
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn test_get_node_outputs_interpolated() {
+        let mut node_outputs = HashMap::new();
+        node_outputs.insert(
+            "artifact".to_string(),
+            "build/{{ inputs.name }}.tar.gz".to_string(),
+        );
+        let node = NodeDef::Shell(crate::schema::ShellNode {
+            id: "build".into(),
+            run: crate::schema::ScriptSource::Inline("echo".into()),
+            depends: vec![],
+            outputs: node_outputs,
+            env: Default::default(),
+            continue_on_error: false,
+            exec: crate::schema::ExecConfig {
+                timeout: None,
+                retry: None,
+                shell: None,
+            },
+        });
+        let mut inputs = HashMap::new();
+        inputs.insert("name".to_string(), "myapp".to_string());
+        let ctx = TemplateContext {
+            inputs,
+            needs_outputs: HashMap::new(),
+            env: HashMap::new(),
+        };
+        let outputs = get_node_outputs(&node, &ctx);
+        assert_eq!(outputs.get("artifact").unwrap(), "build/myapp.tar.gz");
     }
 }

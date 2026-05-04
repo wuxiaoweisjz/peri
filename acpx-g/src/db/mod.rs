@@ -53,6 +53,16 @@ pub async fn init(database_url: &str) -> anyhow::Result<SqlitePool> {
         .execute(&pool)
         .await;
 
+    // Add indexes for common query patterns
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_at ON workflow_runs(created_at DESC)",
+    )
+    .execute(&pool)
+    .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_node_runs_run_id ON node_runs(run_id)")
+        .execute(&pool)
+        .await?;
+
     tracing::info!("database initialized");
     Ok(pool)
 }

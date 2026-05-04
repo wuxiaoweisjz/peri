@@ -83,14 +83,27 @@ impl WorkflowRun {
         Ok(run)
     }
 
-    pub async fn list(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<WorkflowRun>> {
+    pub async fn list(
+        pool: &SqlitePool,
+        limit: i64,
+        offset: i64,
+    ) -> anyhow::Result<Vec<WorkflowRun>> {
         let runs = sqlx::query_as::<_, WorkflowRun>(
-            "SELECT id, workflow_name, workflow_version, '' as yaml_content, status, node_count, started_at, finished_at, created_at, error_message FROM workflow_runs ORDER BY created_at DESC LIMIT ?",
+            "SELECT id, workflow_name, workflow_version, '' as yaml_content, status, node_count, started_at, finished_at, created_at, error_message FROM workflow_runs ORDER BY created_at DESC LIMIT ? OFFSET ?",
         )
         .bind(limit)
+        .bind(offset)
         .fetch_all(pool)
         .await?;
         Ok(runs)
+    }
+
+    /// Count total workflow runs.
+    pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM workflow_runs")
+            .fetch_one(pool)
+            .await?;
+        Ok(row.0)
     }
 }
 
@@ -350,4 +363,7 @@ impl From<NodeRun> for NodeRunResponse {
 #[derive(Debug, Serialize)]
 pub struct ListRunsResponse {
     pub runs: Vec<WorkflowRunResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
 }
