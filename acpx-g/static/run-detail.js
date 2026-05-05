@@ -223,7 +223,6 @@ function renderRunDetailStats(run) {
   const successCount = nodes.filter(n => n.status === 'success').length;
   const failedCount = nodes.filter(n => n.status === 'failed').length;
   const runningCount = nodes.filter(n => n.status === 'running').length;
-  const totalOutputs = (run.inputs && typeof run.inputs === 'object') ? Object.keys(run.inputs).length : 0;
 
   el.style.display = 'flex';
   el.innerHTML = `

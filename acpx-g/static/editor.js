@@ -12,6 +12,7 @@ let redoStack = [];
 const MAX_HISTORY = 50;
 let lastValidationErrors = [];
 let debounceTimer = null;
+let _restoringSnapshot = false;
 
 const dfIdToBizId = new Map();
 const bizIdToDfId = new Map();
@@ -507,6 +508,7 @@ function updateNodeData(dfId, key, value) {
 function renameNode(dfId, newId) {
   const newBizId = sanitizeBizId(newId);
   if (!newBizId) return;
+  if (newBizId !== newId) showToast(`节点 ID 已标准化为 "${newBizId}"`, 'warning', 3000);
   const oldBizId = dfIdToBizId.get(String(dfId));
   if (!oldBizId || oldBizId === newBizId) return;
   if (nodeStore.has(newBizId)) { showToast('节点 ID 已存在', 'error'); return; }
@@ -813,6 +815,7 @@ function currentSnapshot() {
 }
 
 function pushHistory() {
+  if (_restoringSnapshot) return;
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     historyStack.push(currentSnapshot());
@@ -837,6 +840,7 @@ function editorRedo() {
 }
 
 function restoreSnapshot(snap) {
+  _restoringSnapshot = true;
   wfMeta = JSON.parse(JSON.stringify(snap.meta));
   const nameEl = document.getElementById('wf-name');
   const verEl = document.getElementById('wf-version');
@@ -849,6 +853,8 @@ function restoreSnapshot(snap) {
   Object.entries(snap.dfIdMap.toBiz).forEach(([k, v]) => dfIdToBizId.set(k, v));
   Object.entries(snap.dfIdMap.toDf).forEach(([k, v]) => bizIdToDfId.set(k, v));
   hidePropertyPanel(); updateYamlFromCanvas(); saveDraft();
+  // Allow pushHistory after debounce window expires
+  setTimeout(() => { _restoringSnapshot = false; }, 400);
 }
 
 // ── Toolbar Actions ───────────────────────────────────────────────────

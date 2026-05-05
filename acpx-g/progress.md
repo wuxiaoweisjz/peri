@@ -108,3 +108,7 @@
 ## R34 — Design Review Round 12 (用户思维)
 
 API 文档复制按钮去除内联 onclick 改用 addEventListener、Drawflow 画布 ondrop/ondragover 改用 addEventListener。至此前端 JS 文件全部消除内联事件处理器。
+
+## R35 — Design Review Round 13 (用户思维)
+
+修复 undo/redo 恢复快照时历史栈被污染的 bug（`_restoringSnapshot` 标志位阻止 `pushHistory` 在 `restoreSnapshot` 期间写入）、删除 run-detail.js 中未使用的 `totalOutputs` 变量、节点重命名时 ID 被标准化后向用户显示 warning toast 提示。
