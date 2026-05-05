@@ -818,6 +818,179 @@ pub async fn run_template(
     }
 }
 
+// ─── POST /api/v1/workflows/validate ──────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ValidateWorkflowRequest {
+    pub yaml: String,
+}
+
+pub async fn validate_workflow_yaml(Json(req): Json<ValidateWorkflowRequest>) -> impl IntoResponse {
+    if req.yaml.len() > MAX_YAML_SIZE {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "valid": false,
+                "errors": [{"message": format!("YAML too large: {} bytes (max {})", req.yaml.len(), MAX_YAML_SIZE)}],
+                "workflow": null
+            })),
+        );
+    }
+
+    match crate::schema::parse_workflow(&req.yaml) {
+        Ok(wf) => {
+            let node_count = wf.nodes.len();
+            let node_ids: Vec<String> = wf
+                .nodes
+                .iter()
+                .map(|n| match n {
+                    crate::schema::NodeDef::Shell(s) => s.id.clone(),
+                    crate::schema::NodeDef::Agent(a) => a.id.clone(),
+                    crate::schema::NodeDef::Reference(r) => r.id.clone(),
+                })
+                .collect();
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "valid": true,
+                    "errors": [],
+                    "workflow": {
+                        "name": wf.name,
+                        "version": wf.version,
+                        "description": wf.description,
+                        "node_count": node_count,
+                        "node_ids": node_ids,
+                        "inputs": wf.inputs.keys().collect::<Vec<_>>(),
+                    }
+                })),
+            )
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            // Try to extract line number from serde_yaml error
+            let line = msg
+                .split(" at line ")
+                .nth(1)
+                .and_then(|s| s.split(' ').next())
+                .and_then(|s| s.parse::<usize>().ok());
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "valid": false,
+                    "errors": [{"message": msg, "line": line}],
+                    "workflow": null
+                })),
+            )
+        }
+    }
+}
+
+// ─── GET /api/v1/templates/{name}/yaml ────────────────────────────
+
+pub async fn get_template_yaml(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let templates = state.templates.read().unwrap().clone();
+    let template = match templates.iter().find(|t| t.name == name) {
+        Some(t) => t.clone(),
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": format!("template '{}' not found", name)})),
+            )
+        }
+    };
+
+    match std::fs::read_to_string(&template.file_path) {
+        Ok(yaml) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "name": template.name,
+                "yaml": yaml,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("failed to read template file: {e}")})),
+        ),
+    }
+}
+
+// ─── POST /api/v1/templates/save ──────────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SaveTemplateRequest {
+    pub name: String,
+    pub yaml: String,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+pub async fn save_template(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SaveTemplateRequest>,
+) -> impl IntoResponse {
+    if req.yaml.len() > MAX_YAML_SIZE {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "success": false,
+                "message": format!("YAML too large: {} bytes", req.yaml.len())
+            })),
+        );
+    }
+
+    // Validate YAML before saving
+    if let Err(e) = crate::schema::parse_workflow(&req.yaml) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "message": format!("Invalid workflow YAML: {e}")
+            })),
+        );
+    }
+
+    // Determine save path
+    let save_path = if let Some(p) = req.path {
+        p
+    } else {
+        // Try to find existing template path, or use examples directory
+        let templates = state.templates.read().unwrap();
+        if let Some(tpl) = templates.iter().find(|t| t.name == req.name) {
+            tpl.file_path.clone()
+        } else {
+            format!("./examples/{}.yaml", req.name)
+        }
+    };
+
+    // Ensure parent directory exists
+    if let Some(parent) = std::path::Path::new(&save_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+
+    match std::fs::write(&save_path, &req.yaml) {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Saved to {}", save_path),
+                "path": save_path,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "message": format!("Failed to write file: {e}")
+            })),
+        ),
+    }
+}
+
 // ─── Input Validation ─────────────────────────────────────────────
 
 /// Validate provided inputs against declared InputDefs.

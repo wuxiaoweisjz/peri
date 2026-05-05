@@ -68,6 +68,16 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/templates/{name}/run",
             post(acpx_g::api::run_template),
         )
+        // Workflow Editor API
+        .route(
+            "/api/v1/workflows/validate",
+            post(acpx_g::api::validate_workflow_yaml),
+        )
+        .route("/api/v1/templates/save", post(acpx_g::api::save_template))
+        .route(
+            "/api/v1/templates/{name}/yaml",
+            get(acpx_g::api::get_template_yaml),
+        )
         // Workflow API
         .route("/api/v1/workflows", post(acpx_g::api::submit_workflow))
         .route("/api/v1/workflows", get(acpx_g::api::list_workflows))

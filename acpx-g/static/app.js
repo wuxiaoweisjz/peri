@@ -121,6 +121,7 @@ async function loadTemplates() {
         </div>
         <div class="template-actions">
           <button class="btn btn-primary btn-sm run-btn" data-name="${esc(t.name)}">&#9654; Run</button>
+          <button class="btn btn-sm edit-btn" data-name="${esc(t.name)}">Edit</button>
           <button class="btn btn-sm api-btn" data-name="${esc(t.name)}">API</button>
         </div>
       </div>
@@ -134,6 +135,14 @@ async function loadTemplates() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         runTemplateFromCard(btn.dataset.name);
+      });
+    });
+    el.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof editTemplateInEditor === 'function') {
+          editTemplateInEditor(btn.dataset.name);
+        }
       });
     });
     el.querySelectorAll('.api-btn').forEach(btn => {
@@ -444,6 +453,7 @@ function renderLogs(run) {
 
   // Action buttons based on workflow status
   let actionsHtml = '<div class="run-actions">';
+  actionsHtml += `<button class="btn btn-sm" data-action="edit">Edit</button>`;
   if (run.status === 'running' || run.status === 'pending') {
     actionsHtml += `<button class="btn btn-sm btn-danger" data-action="cancel">Cancel</button>`;
   }
@@ -498,6 +508,11 @@ function renderLogs(run) {
       if (action === 'cancel') cancelRun(run.id);
       else if (action === 'rerun') rerunRun(run.id);
       else if (action === 'delete') confirmDelete(run.id, run.workflow_name);
+      else if (action === 'edit') {
+        if (typeof editTemplateInEditor === 'function') {
+          editTemplateInEditor(run.workflow_name);
+        }
+      }
     });
   });
 }
