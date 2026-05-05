@@ -656,6 +656,61 @@ nodes:
     }
 
     #[test]
+    fn test_parse_workflow_reference_valid() {
+        let yaml = r#"
+name: test
+version: "1.0"
+references:
+  sub: ./sub.yaml
+nodes:
+  - id: call
+    type: reference
+    ref: sub
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        assert_eq!(wf.name, "test");
+        assert_eq!(wf.references["sub"], "./sub.yaml");
+    }
+
+    #[test]
+    fn test_parse_workflow_reference_with_params() {
+        let yaml = r#"
+name: test
+version: "1.0"
+references:
+  sub: ./sub.yaml
+nodes:
+  - id: step-1
+    type: shell
+    run: echo hello
+  - id: call
+    type: reference
+    ref: sub
+    depends: [step-1]
+    with:
+      name: world
+      count: 3
+"#;
+        let wf = parse_workflow(yaml).unwrap();
+        let node = wf
+            .nodes
+            .iter()
+            .find(|n| match n {
+                NodeDef::Reference(r) => r.id == "call",
+                _ => false,
+            })
+            .unwrap();
+        if let NodeDef::Reference(r) = node {
+            assert_eq!(r.r#ref, "sub");
+            assert_eq!(r.depends, vec!["step-1"]);
+            assert_eq!(r.with["name"].as_str(), Some("world"));
+            assert_eq!(r.with["count"].as_i64(), Some(3));
+        } else {
+            panic!("expected Reference node");
+        }
+    }
+
+    #[test]
     fn test_parse_workflow_whitespace_name() {
         let yaml = r#"
 name: "   "
