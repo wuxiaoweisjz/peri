@@ -16,9 +16,8 @@ pub use installer::{
     InstallerError, PluginUpdateInfo,
 };
 pub use loader::{
-    load_enabled_plugins, load_enabled_plugins_aggregated, load_manifest, load_plugins,
-    merge_plugin_mcp_servers, CommandEntry, CommandProvider, CommandSource, LoadedPlugin,
-    LoaderError, PluginCommandProvider, PluginLoadResult,
+    load_enabled_plugins, load_enabled_plugins_aggregated, CommandEntry, CommandProvider,
+    CommandSource, LoadedPlugin, LoaderError, PluginCommandProvider, PluginLoadResult,
 };
 pub use marketplace::{
     parse_marketplace_input, AvailablePlugin, MarketplaceEntry, MarketplaceError,

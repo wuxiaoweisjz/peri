@@ -81,7 +81,7 @@ pub fn load_manifest(plugin_dir: &Path) -> Result<PluginManifest, LoaderError> {
         .map_err(|e| LoaderError::ManifestLoadFailed(format!("{}: {e}", plugin_dir.display())))
 }
 
-pub fn extract_commands(
+pub(crate) fn extract_commands(
     manifest: &PluginManifest,
     base_dir: &Path,
     plugin_name: &str,
@@ -131,7 +131,7 @@ pub fn extract_commands(
     result
 }
 
-pub fn extract_skills_paths(manifest: &PluginManifest, base_dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn extract_skills_paths(manifest: &PluginManifest, base_dir: &Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
 
     // 1. manifest 显式声明
@@ -162,7 +162,7 @@ pub fn extract_skills_paths(manifest: &PluginManifest, base_dir: &Path) -> Vec<P
     result
 }
 
-pub fn extract_agents_paths(manifest: &PluginManifest, base_dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn extract_agents_paths(manifest: &PluginManifest, base_dir: &Path) -> Vec<PathBuf> {
     let agents = match &manifest.agents {
         Some(a) if !a.is_empty() => a,
         _ => return Vec::new(),
@@ -182,7 +182,7 @@ pub fn extract_agents_paths(manifest: &PluginManifest, base_dir: &Path) -> Vec<P
 
 /// Extract MCP servers from plugin manifest.
 /// Supports inline config objects and .mcp.json file path references.
-pub fn extract_mcp_servers(
+pub(crate) fn extract_mcp_servers(
     manifest: &PluginManifest,
     install_path: &Path,
 ) -> HashMap<String, McpServerConfig> {
