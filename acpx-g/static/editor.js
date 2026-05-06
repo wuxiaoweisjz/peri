@@ -627,7 +627,6 @@ function importFromYaml(yamlStr) {
     wfMeta.inputs = parsed.inputs || {};
     wfMeta.env = parsed.env || {};
     wfMeta.references = parsed.references || {};
-    wfBaseDir = null;
 
     const nameEl = document.getElementById('wf-name');
     const verEl = document.getElementById('wf-version');
@@ -1170,11 +1169,7 @@ function renderEditorTemplateList(tpls) {
         }
         loadTemplateToEditor(card.dataset.name);
       };
-      if (nodeStore.size > 0) {
-        confirmDialog('加载模板', '加载模板将覆盖当前工作流，确定继续吗？', null, doLoad);
-      } else {
-        doLoad();
-      }
+      doLoad();
     });
   });
 }
