@@ -225,7 +225,6 @@ fn extract_title(msgs: &[BaseMessage]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::{ContentBlock, MessageContent};
     use tempfile::tempdir;
 
     fn make_meta(cwd: &str) -> ThreadMeta {

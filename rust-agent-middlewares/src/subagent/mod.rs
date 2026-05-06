@@ -497,8 +497,10 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            scan_agents_with_extra_dirs(dir.path().to_str().unwrap(), &[extra_dir.clone()]);
+        let result = scan_agents_with_extra_dirs(
+            dir.path().to_str().unwrap(),
+            std::slice::from_ref(&extra_dir),
+        );
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "plugin-agent");
         assert_eq!(result[0].2, "From plugin");
