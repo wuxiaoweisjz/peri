@@ -102,7 +102,7 @@ pub enum McpConfigError {
 }
 
 /// 从指定 JSON 文件加载 MCP 配置，文件不存在时返回空配置
-pub fn load_from_path(path: &Path) -> Result<McpConfigFile, McpConfigError> {
+pub(crate) fn load_from_path(path: &Path) -> Result<McpConfigFile, McpConfigError> {
     if !path.exists() {
         return Ok(McpConfigFile::default());
     }
@@ -117,7 +117,9 @@ pub fn load_from_path(path: &Path) -> Result<McpConfigFile, McpConfigError> {
 }
 
 /// 从全局 settings.json 的 extra 字段中提取 mcpServers
-pub fn load_global_config(settings_json_path: &Path) -> Result<McpConfigFile, McpConfigError> {
+pub(crate) fn load_global_config(
+    settings_json_path: &Path,
+) -> Result<McpConfigFile, McpConfigError> {
     if !settings_json_path.exists() {
         return Ok(McpConfigFile::default());
     }
@@ -145,7 +147,7 @@ pub fn load_global_config(settings_json_path: &Path) -> Result<McpConfigFile, Mc
 }
 
 /// 基于 command+args+env 计算服务器配置的内容 hash，用于去重
-pub fn server_config_hash(cfg: &McpServerConfig) -> u64 {
+pub(crate) fn server_config_hash(cfg: &McpServerConfig) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
@@ -172,7 +174,7 @@ pub fn server_config_hash(cfg: &McpServerConfig) -> u64 {
 /// - ${CLAUDE_PLUGIN_DATA}: 替换为 plugin_data_path
 /// - ${user_config.X}: 从 user_config HashMap 中查找
 /// - ${VAR}: 系统环境变量（fallback）
-pub fn expand_env_vars_with_context(
+pub(crate) fn expand_env_vars_with_context(
     s: &str,
     plugin_install_path: Option<&Path>,
     plugin_data_path: Option<&Path>,
@@ -222,12 +224,13 @@ pub fn expand_env_vars_with_context(
 }
 
 /// 展开 s 中所有 ${VAR} 占位符为环境变量值（无插件上下文）
-pub fn expand_env_vars(s: &str) -> String {
+#[cfg(test)]
+fn expand_env_vars(s: &str) -> String {
     expand_env_vars_with_context(s, None, None, None)
 }
 
 /// 对 McpServerConfig 中所有字符串字段执行环境变量展开（带插件上下文）
-pub fn expand_server_config_with_context(
+pub(crate) fn expand_server_config_with_context(
     config: &McpServerConfig,
     plugin_install_path: Option<&Path>,
     plugin_data_path: Option<&Path>,
@@ -263,7 +266,7 @@ pub fn expand_server_config_with_context(
 }
 
 /// 对 McpServerConfig 中所有字符串字段执行环境变量展开（无插件上下文）
-pub fn expand_server_config(config: &McpServerConfig) -> McpServerConfig {
+pub(crate) fn expand_server_config(config: &McpServerConfig) -> McpServerConfig {
     expand_server_config_with_context(config, None, None, None)
 }
 
