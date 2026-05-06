@@ -2172,6 +2172,7 @@ fn handle_plugin_panel(app: &mut App, input: Input) {
                             app.marketplace_request_update_with_source()
                         {
                             let name_for_msg = name.clone();
+                            let source_for_update = source.clone();
                             let tx = app.bg_event_tx.clone();
                             tokio::spawn(async move {
                                 let result =
@@ -2182,7 +2183,26 @@ fn handle_plugin_panel(app: &mut App, input: Input) {
                                     .await;
 
                                 match result {
-                                    Ok(_) => {
+                                    Ok((_manifest, install_location)) => {
+                                        // 更新 installLocation 和 lastUpdated
+                                        if let Ok(mut marketplaces) =
+                                            rust_agent_middlewares::plugin::load_known_marketplaces(
+                                                None,
+                                            )
+                                        {
+                                            if let Some(entry) = marketplaces
+                                                .iter_mut()
+                                                .find(|km| km.source == source_for_update)
+                                            {
+                                                entry.install_location = install_location;
+                                                entry.last_updated =
+                                                    chrono::Utc::now().to_rfc3339();
+                                                let _ = rust_agent_middlewares::plugin::save_known_marketplaces(
+                                                    &marketplaces,
+                                                    None,
+                                                );
+                                            }
+                                        }
                                         let _ = tx
                                             .send(crate::app::AgentEvent::PluginActionCompleted {
                                                 plugin_id: name.clone(),

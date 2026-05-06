@@ -521,10 +521,12 @@ impl App {
     }
 
     /// 添加并保存 marketplace
+    ///
+    /// 这个方法是同步的，但会启动后台任务获取内容
     pub fn marketplace_add_and_save(&mut self, input: &str) -> anyhow::Result<()> {
         use rust_agent_middlewares::plugin::{
             load_known_marketplaces, parse_marketplace_input, save_known_marketplaces,
-            KnownMarketplace,
+            KnownMarketplace, MarketplaceManager,
         };
 
         // 解析输入
@@ -541,52 +543,20 @@ impl App {
             }
         }
 
-        // 创建新条目
-        let name = match &source {
-            rust_agent_middlewares::plugin::MarketplaceSource::GitHub { repo } => {
-                repo.split('/').last().unwrap_or(repo).to_string()
-            }
-            rust_agent_middlewares::plugin::MarketplaceSource::Git { url } => url
-                .split('/')
-                .last()
-                .and_then(|s| s.strip_suffix(".git"))
-                .unwrap_or("marketplace")
-                .to_string(),
-            rust_agent_middlewares::plugin::MarketplaceSource::Url { url } => url
-                .split('/')
-                .last()
-                .and_then(|s| s.strip_suffix(".json"))
-                .unwrap_or("marketplace")
-                .to_string(),
-            rust_agent_middlewares::plugin::MarketplaceSource::File { path } => {
-                std::path::Path::new(path)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("marketplace")
-                    .to_string()
-            }
-            rust_agent_middlewares::plugin::MarketplaceSource::Directory { path } => {
-                std::path::Path::new(path)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("marketplace")
-                    .to_string()
-            }
-            rust_agent_middlewares::plugin::MarketplaceSource::Npm { package } => {
-                package.split('@').next().unwrap_or(package).to_string()
-            }
-        };
+        // 提取名称
+        let name = MarketplaceManager::extract_name_wrapper(&source);
 
+        // 创建新条目（初始状态：install_location 和 last_updated 为空）
         let new_entry = KnownMarketplace {
-            source,
-            install_location: String::new(), // 占位符，实际获取时会更新
+            source: source.clone(),
+            install_location: String::new(),
             auto_update: false,
-            last_updated: String::new(), // 占位符，实际获取时会更新
+            last_updated: String::new(),
         };
 
         marketplaces.push(new_entry);
 
-        // 保存
+        // 保存配置
         save_known_marketplaces(&marketplaces, None)?;
 
         // 显示成功消息
@@ -594,12 +564,54 @@ impl App {
             .core
             .view_messages
             .push(crate::app::MessageViewModel::system(format!(
-                "Marketplace 已添加: {}",
+                "Marketplace 已添加: {} (正在获取内容...)",
                 name
             )));
 
-        // 刷新面板
+        // 刷新面板以显示新添加的 marketplace
         self.open_plugin_panel();
+
+        // 启动后台任务获取内容并更新 installLocation
+        let name_clone = name.clone();
+        let tx = self.bg_event_tx.clone();
+        tokio::spawn(async move {
+            use rust_agent_middlewares::plugin::marketplace::refresh_marketplace;
+            match refresh_marketplace(&source, &name_clone).await {
+                Ok((_manifest, install_location)) => {
+                    // 更新 installLocation 和 lastUpdated
+                    if let Ok(mut mkt_places) =
+                        rust_agent_middlewares::plugin::load_known_marketplaces(None)
+                    {
+                        if let Some(entry) = mkt_places.iter_mut().find(|km| km.source == source) {
+                            entry.install_location = install_location;
+                            entry.last_updated = chrono::Utc::now().to_rfc3339();
+                            let _ = rust_agent_middlewares::plugin::save_known_marketplaces(
+                                &mkt_places,
+                                None,
+                            );
+                        }
+                    }
+                    let _ = tx
+                        .send(crate::app::AgentEvent::PluginActionCompleted {
+                            plugin_id: name_clone.clone(),
+                            action: "add".to_string(),
+                            success: true,
+                            message: format!("Marketplace '{}' 内容已获取", name_clone),
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(crate::app::AgentEvent::PluginActionCompleted {
+                            plugin_id: name_clone.clone(),
+                            action: "add".to_string(),
+                            success: false,
+                            message: format!("获取内容失败: {}", e),
+                        })
+                        .await;
+                }
+            }
+        });
 
         Ok(())
     }

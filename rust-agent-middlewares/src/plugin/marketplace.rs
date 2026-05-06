@@ -727,36 +727,58 @@ pub fn parse_marketplace_input(input: &str) -> Result<MarketplaceSource, String>
     Err(format!("无法识别的 marketplace source: {}", trimmed))
 }
 
-/// 刷新单个 marketplace 的缓存
+/// 刷新单个 marketplace 的缓存，返回 manifest 和缓存路径
 ///
 /// 异步获取 marketplace manifest 并缓存到本地
+/// 返回: (manifest, install_location)
 pub async fn refresh_marketplace(
     source: &MarketplaceSource,
     name: &str,
-) -> Result<MarketplaceManifest, MarketplaceError> {
+) -> Result<(MarketplaceManifest, String), MarketplaceError> {
     let cache_base = marketplaces_cache_dir();
     let auto_update = true; // 默认启用自动更新
 
-    match source {
+    let manifest = match source {
         MarketplaceSource::GitHub { repo } => {
-            fetch_github(name, repo, &cache_base, auto_update).await
+            fetch_github(name, repo, &cache_base, auto_update).await?
         }
-        MarketplaceSource::Git { url } => fetch_git(name, url, &cache_base, auto_update).await,
-        MarketplaceSource::Url { url } => fetch_url(name, url, &cache_base).await,
+        MarketplaceSource::Git { url } => fetch_git(name, url, &cache_base, auto_update).await?,
+        MarketplaceSource::Url { url } => fetch_url(name, url, &cache_base).await?,
         MarketplaceSource::File { path } => {
             let path = path.clone();
             tokio::task::spawn_blocking(move || read_file(Path::new(&path)))
                 .await
-                .expect("spawn_blocking panicked")
+                .expect("spawn_blocking panicked")?
         }
         MarketplaceSource::Directory { path } => {
             let path = path.clone();
             tokio::task::spawn_blocking(move || read_directory(Path::new(&path)))
                 .await
-                .expect("spawn_blocking panicked")
+                .expect("spawn_blocking panicked")?
         }
-        MarketplaceSource::Npm { package } => fetch_npm(name, package, &cache_base).await,
-    }
+        MarketplaceSource::Npm { package } => fetch_npm(name, package, &cache_base).await?,
+    };
+
+    // 计算缓存路径
+    let install_location = match source {
+        MarketplaceSource::GitHub { .. }
+        | MarketplaceSource::Git { .. }
+        | MarketplaceSource::Npm { .. } => {
+            // 目录型缓存：返回目录路径
+            cache_base.join(name).display().to_string()
+        }
+        MarketplaceSource::Url { .. } => {
+            // 文件型缓存：返回 .json 文件路径
+            cache_base
+                .join(format!("{name}.json"))
+                .display()
+                .to_string()
+        }
+        MarketplaceSource::File { path } => path.clone(),
+        MarketplaceSource::Directory { path } => path.clone(),
+    };
+
+    Ok((manifest, install_location))
 }
 
 #[cfg(test)]
