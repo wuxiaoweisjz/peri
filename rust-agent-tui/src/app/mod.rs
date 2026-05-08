@@ -30,6 +30,8 @@ mod langfuse_state;
 mod mcp_panel;
 pub mod message_pipeline;
 mod oauth_prompt;
+pub mod panel_component;
+pub mod panel_manager;
 mod panel_ops;
 mod thread_ops;
 
@@ -81,6 +83,10 @@ pub use core::AppCore;
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};
+pub use panel_component::PanelComponent;
+pub use panel_manager::{
+    EventResult, MutexGroup, PanelContext, PanelKind, PanelManager, PanelScope, PanelState,
+};
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
@@ -115,20 +121,14 @@ pub struct App {
         Option<tokio::sync::watch::Receiver<rust_agent_middlewares::mcp::McpInitStatus>>,
     /// OAuth 授权弹窗状态（None 表示无弹窗）
     pub oauth_prompt: Option<OAuthPrompt>,
-    pub mcp_panel: Option<McpPanel>,
+    pub global_panels: panel_manager::PanelManager,
     /// 后台事件通道：供 spawn 的 MCP OAuth 等异步任务向 TUI 主循环发送事件
     pub bg_event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
     pub bg_event_rx: Option<tokio::sync::mpsc::Receiver<AgentEvent>>,
     /// MCP 就绪提示显示截止时间（首次 Ready 时设置，3 秒后消失）
     pub mcp_ready_shown_until: std::cell::Cell<Option<std::time::Instant>>,
-    /// /cost & /context 状态面板
-    pub status_panel: Option<status_panel::StatusPanel>,
-    /// /memory 记忆文件面板状态
-    pub memory_panel: Option<crate::app::memory_panel::MemoryPanel>,
     /// 已加载的插件聚合数据（Skills 路径、MCP 服务器、Agent 路径、命令列表）
     pub plugin_data: Option<rust_agent_middlewares::plugin::PluginLoadResult>,
-    /// /plugin 插件管理面板状态
-    pub plugin_panel: Option<plugin_panel::PluginPanel>,
     /// 双击 Ctrl+C 退出：第一次按下时记录时间，2 秒内再次按下才真正退出
     pub quit_pending_since: Option<std::time::Instant>,
 }
@@ -215,15 +215,12 @@ impl App {
             claude_settings_override: None,
             mcp_pool: None,
             mcp_init_rx: None,
-            mcp_panel: None,
+            global_panels: panel_manager::PanelManager::new(),
             oauth_prompt: None,
             bg_event_tx,
             bg_event_rx: Some(bg_event_rx),
             mcp_ready_shown_until: std::cell::Cell::new(None),
-            status_panel: None,
-            memory_panel: None,
             plugin_data: None,
-            plugin_panel: None,
             quit_pending_since: None,
         }
     }
@@ -508,6 +505,32 @@ impl App {
             }
         } else {
             s.agent.last_task_duration
+        }
+    }
+
+    /// 打开面板（统一处理跨作用域互斥）：关闭所有 manager 中的面板后，放入正确的 manager
+    pub fn open_panel(&mut self, state: panel_manager::PanelState) {
+        match state.kind().scope() {
+            panel_manager::PanelScope::Session => {
+                self.global_panels.close();
+                self.sessions[self.active].core.session_panels.close();
+                self.sessions[self.active].core.session_panels.open(state);
+            }
+            panel_manager::PanelScope::Global => {
+                self.global_panels.close();
+                for session in &mut self.sessions {
+                    session.core.session_panels.close();
+                }
+                self.global_panels.open(state);
+            }
+        }
+    }
+
+    /// 关闭所有面板（跨所有作用域）
+    pub fn close_all_panels(&mut self) {
+        self.global_panels.close();
+        for session in &mut self.sessions {
+            session.core.session_panels.close();
         }
     }
 

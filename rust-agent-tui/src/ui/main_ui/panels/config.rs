@@ -13,11 +13,7 @@ use crate::app::App;
 use crate::ui::theme;
 
 /// /config 面板渲染
-pub(crate) fn render_config_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.sessions[app.active].core.config_panel else {
-        return;
-    };
-
+pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, _app: &App, area: Rect) {
     let border_color = match panel.mode {
         ConfigPanelMode::Browse => theme::BORDER,
         ConfigPanelMode::Edit => theme::WARNING,

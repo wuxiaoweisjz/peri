@@ -313,22 +313,11 @@ ReActAgent::new(llm)
 - **字符串显示宽度**：终端列宽计算使用 `unicode-width` crate（`UnicodeWidthStr::width()` / `UnicodeWidthChar::width()`），CJK 等全角字符占 2 列。面板列表项截断需基于显示宽度而非 `char` 数量。
 - **测试隔离——禁止写入全局配置**：`config::save()` 默认写入 `~/.zen-code/settings.json`。Headless 测试（`new_headless`）通过 `App.config_path_override` 将保存路径重定向到临时目录。新增面板操作方法若需持久化配置，必须调用 `App::save_config(cfg, self.config_path_override.as_deref())` 而非直接调用 `crate::config::save(cfg)`，否则测试会覆盖用户的真实 Provider/API Key 配置。
 
-## 面板快捷键设计规范
+## 面板系统
 
-所有面板遵循统一的按键约定：
+`PanelManager` + `PanelComponent` trait 组件化架构（`app/panel_manager.rs` / `app/panel_component.rs`）。新增面板只需定义 `PanelState` 变体 + 实现 trait，无需修改 `event.rs` / `status_bar.rs` / `main_ui.rs`。
 
-| 按键 | 行为 |
-|------|------|
-| `↑` / `↓` | 竖向列表导航（Browse 模式切换光标，Edit 模式切换字段） |
-| `←` / `→` | 横向切换（仅限 Type 等枚举字段，编辑模式下） |
-| `Enter` | 确认/进入（Browse 模式进入编辑，Edit 模式保存，确认面板确认操作） |
-| `Space` | 选中/切换（Browse 模式激活 Provider，Edit 模式切换 Type） |
-| `Esc` | 关闭/取消（关闭面板、退出编辑回到 Browse、取消确认） |
-| `Ctrl+V` | 粘贴剪贴板内容到当前编辑字段 |
-
-**快捷键提示显示位置——统一由状态栏第二行负责**：
-
-- 面板内部**禁止**渲染快捷键提示行（如 `↑↓:导航 Enter:确认 Esc:关闭`）
-- 状态栏 `render_second_row` 根据 `App` 当前激活的面板和面板内部状态（如确认删除模式、编辑模式）切换显示对应的快捷键
-- 需要状态栏感知的面板状态包括：`agent_panel`、`cron_panel`（含 `confirm_delete`）、`login_panel`（含 `LoginPanelMode` 四种变体）、`mcp_panel`（含 `McpPanelView` + `confirm_delete`）、`model_panel`、`thread_browser`（含 `confirm_delete`）、`interaction_prompt`（Questions/Approval）
-- 新增面板时，需同步在 `status_bar.rs` 的 `render_second_row` 分支中添加对应的快捷键显示逻辑
+- **双作用域**：`session_panels`（Session-scoped）和 `global_panels`（Global-scoped），`App::open_panel()` 自动处理跨作用域互斥
+- **统一入口**：`open_panel(PanelKind)` / `close_all_panels()`，业务逻辑在 `panel_ops.rs`
+- **特殊面板**（不纳入 PanelManager）：Setup Wizard、OAuth Prompt、Interaction Prompts——全屏覆盖或 agent/MCP 触发，在 `event.rs` 中优先处理
+- **快捷键提示**：面板内部禁止渲染提示行，统一由状态栏通过 `status_bar_hints()` 自描述，新增面板实现该方法即可

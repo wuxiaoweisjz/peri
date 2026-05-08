@@ -1,4 +1,15 @@
+use std::any::Any;
+
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_textarea::Input;
+
 use crate::config::ZenConfig;
+use crate::ui::message_view::MessageViewModel;
+
+use super::panel_component::PanelComponent;
+use super::panel_manager::{EventResult, PanelContext, PanelKind};
+use super::App;
 
 // ─── 枚举 ─────────────────────────────────────────────────────────────────────
 
@@ -57,6 +68,7 @@ impl ConfigEditField {
 
 const FIELD_COUNT: usize = 6;
 
+#[derive(Clone)]
 pub struct ConfigPanel {
     pub mode: ConfigPanelMode,
     /// Browse 模式当前选中字段索引（0-5）
@@ -266,6 +278,173 @@ impl ConfigPanel {
             }
             5 => self.buf_proactiveness.clone(),
             _ => String::new(),
+        }
+    }
+}
+
+impl PanelComponent for ConfigPanel {
+    fn kind(&self) -> PanelKind {
+        PanelKind::Config
+    }
+
+    fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        use tui_textarea::Key;
+        match self.mode {
+            ConfigPanelMode::Browse => match input {
+                Input { key: Key::Up, .. } => {
+                    if self.cursor > 0 {
+                        self.cursor -= 1;
+                    } else {
+                        self.cursor = Self::field_count() - 1;
+                    }
+                    EventResult::Consumed
+                }
+                Input { key: Key::Down, .. } => {
+                    self.cursor = (self.cursor + 1) % Self::field_count();
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    self.enter_edit();
+                    EventResult::Consumed
+                }
+                Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+                _ => EventResult::Consumed,
+            },
+            ConfigPanelMode::Edit => {
+                match input {
+                    Input { key: Key::Esc, .. } => {
+                        self.mode = ConfigPanelMode::Browse;
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Enter, ..
+                    } => {
+                        // apply_config and close
+                        let Some(cfg) = ctx.zen_config.as_mut() else {
+                            return EventResult::Consumed;
+                        };
+                        self.apply_edit(cfg);
+                        use super::App;
+                        if let Err(e) = App::save_config(cfg, ctx.config_path_override.as_deref()) {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(format!(
+                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
+                                    e
+                                )),
+                            );
+                        } else {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(
+                                    "\u{914d}\u{7f6e}\u{5df2}\u{4fdd}\u{5b58}".to_string(),
+                                ),
+                            );
+                        }
+                        EventResult::ClosePanel
+                    }
+                    Input { key: Key::Up, .. } => {
+                        self.field_prev();
+                        EventResult::Consumed
+                    }
+                    Input { key: Key::Down, .. } => {
+                        self.field_next();
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Char(' '),
+                        ctrl: false,
+                        ..
+                    } => {
+                        match self.edit_field {
+                            ConfigEditField::Autocompact => self.cycle_autocompact(),
+                            ConfigEditField::Proactiveness => self.cycle_proactiveness(),
+                            _ => {
+                                if let Some((buf, cursor)) = self.active_field() {
+                                    super::handle_edit_key(
+                                        buf,
+                                        cursor,
+                                        Input {
+                                            key: Key::Char(' '),
+                                            ctrl: false,
+                                            alt: false,
+                                            shift: false,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Left,
+                        ctrl: false,
+                        ..
+                    }
+                    | Input {
+                        key: Key::Right,
+                        ctrl: false,
+                        ..
+                    } => {
+                        match self.edit_field {
+                            ConfigEditField::Autocompact => self.cycle_autocompact(),
+                            ConfigEditField::Proactiveness => self.cycle_proactiveness(),
+                            _ => {
+                                if let Some((buf, cursor)) = self.active_field() {
+                                    super::handle_edit_key(buf, cursor, input);
+                                }
+                            }
+                        }
+                        EventResult::Consumed
+                    }
+                    _ => {
+                        if let Some((buf, cursor)) = self.active_field() {
+                            super::handle_edit_key(buf, cursor, input);
+                        }
+                        EventResult::Consumed
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_paste(&mut self, text: &str, _ctx: &mut PanelContext<'_>) -> EventResult {
+        self.paste_text(text);
+        EventResult::Consumed
+    }
+
+    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
+        match self.mode {
+            ConfigPanelMode::Browse => 12,
+            ConfigPanelMode::Edit => 14,
+        }
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::config::render_config_panel(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        match self.mode {
+            ConfigPanelMode::Browse => vec![
+                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+                ("Enter", "\u{7f16}\u{8f91}"),
+                ("Esc", "\u{5173}\u{95ed}"),
+            ],
+            ConfigPanelMode::Edit => vec![
+                ("\u{2191}\u{2193}", "\u{5b57}\u{6bb5}"),
+                ("Enter", "\u{4fdd}\u{5b58}"),
+                ("Space", "\u{5207}\u{6362}"),
+                ("Esc", "\u{53d6}\u{6d88}"),
+            ],
         }
     }
 }

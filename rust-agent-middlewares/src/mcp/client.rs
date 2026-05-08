@@ -45,7 +45,7 @@ pub enum OAuthStatus {
 }
 
 /// 单个 MCP 服务器的详细信息（用于 TUI 面板展示）
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ServerInfo {
     pub name: String,
     pub transport_type: String,

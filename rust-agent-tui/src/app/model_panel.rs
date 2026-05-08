@@ -1,4 +1,14 @@
+use std::any::Any;
+
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_textarea::Input;
+
 use crate::config::{ThinkingConfig, ZenConfig};
+
+use super::panel_component::PanelComponent;
+use super::panel_manager::{EventResult, PanelContext, PanelKind};
+use super::App;
 
 // ─── AliasTab 枚举 ─────────────────────────────────────────────────────────────
 
@@ -45,6 +55,7 @@ pub const ROW_COUNT: usize = 4;
 
 // ─── ModelPanel ─────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct ModelPanel {
     /// 当前激活 Provider 的显示名称
     pub provider_name: String,
@@ -132,6 +143,132 @@ impl ModelPanel {
         });
         t.enabled = true;
         t.effort = self.buf_thinking_effort.clone();
+    }
+}
+
+// ─── PanelComponent 实现 ──────────────────────────────────────────────────────
+
+impl PanelComponent for ModelPanel {
+    fn kind(&self) -> PanelKind {
+        PanelKind::Model
+    }
+
+    fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        use tui_textarea::Key;
+        match input {
+            Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+            Input { key: Key::Up, .. } => {
+                self.move_cursor(-1);
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                self.move_cursor(1);
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Char(' ') | Key::Enter,
+                ..
+            } => match self.cursor {
+                ROW_OPUS => {
+                    self.active_tab = AliasTab::Opus;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
+                }
+                ROW_SONNET => {
+                    self.active_tab = AliasTab::Sonnet;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
+                }
+                ROW_HAIKU => {
+                    self.active_tab = AliasTab::Haiku;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
+                }
+                ROW_EFFORT => {
+                    self.cycle_effort(false);
+                    EventResult::Consumed
+                }
+                _ => EventResult::Consumed,
+            },
+            Input { key: Key::Left, .. } => {
+                self.cycle_effort(true);
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Right, ..
+            } => {
+                self.cycle_effort(false);
+                EventResult::Consumed
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
+        12
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::model::render_model_panel(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+            ("Enter", "\u{786e}\u{8ba4}"),
+            ("Space", "\u{9009}\u{62e9}/\u{5207}\u{6362}"),
+            ("Esc", "\u{5173}\u{95ed}"),
+        ]
+    }
+}
+
+impl ModelPanel {
+    /// 将面板状态写入 config，推送系统消息，更新 provider/model 名称
+    fn apply_and_close(panel: &ModelPanel, ctx: &mut PanelContext<'_>) {
+        let alias_label = panel.active_tab.label().to_string();
+        let effort = panel.buf_thinking_effort.clone();
+
+        let Some(cfg) = ctx.zen_config.as_mut() else {
+            return;
+        };
+        panel.apply_to_config(cfg);
+
+        let effort_display = match effort.as_str() {
+            "low" => "Low",
+            "high" => "High",
+            _ => "Medium",
+        };
+
+        ctx.sessions[ctx.active]
+            .core
+            .view_messages
+            .push(crate::app::MessageViewModel::system(format!(
+                "\u{6a21}\u{578b}\u{5df2}\u{5207}\u{6362}\u{4e3a}: {} ({} effort)",
+                alias_label, effort_display
+            )));
+
+        if let Err(e) = App::save_config(cfg, ctx.config_path_override.as_deref()) {
+            ctx.sessions[ctx.active]
+                .core
+                .view_messages
+                .push(crate::app::MessageViewModel::system(format!(
+                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
+                    e
+                )));
+        }
+
+        if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
+            *ctx.provider_name = p.display_name().to_string();
+            *ctx.model_name = p.model_name().to_string();
+        }
     }
 }
 

@@ -1,6 +1,15 @@
+use std::any::Any;
+
 use perihelion_widgets::InputState;
+use ratatui::layout::Rect;
+use ratatui::Frame;
 use rust_agent_middlewares::plugin::InstallScope;
 use std::collections::HashSet;
+use tui_textarea::{Input, Key};
+
+use super::panel_component::PanelComponent;
+use super::panel_manager::{EventResult, PanelContext, PanelKind};
+use super::App;
 
 /// Discover 视图中展示的可用插件
 #[derive(Debug, Clone)]
@@ -289,13 +298,963 @@ impl PluginPanel {
     }
 }
 
-// ─── App 操作方法 ────────────────────────────────────────────────────────────
+// ─── PanelComponent 实现 ──────────────────────────────────────────────────────
 
-use super::App;
+impl PanelComponent for PluginPanel {
+    fn kind(&self) -> PanelKind {
+        PanelKind::Plugin
+    }
+
+    fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        // 1. confirm_delete 模式
+        if self.confirm_delete.is_some() {
+            return self.handle_confirm_delete(input, ctx);
+        }
+
+        // 2. discover_searching 模式
+        if self.discover_searching {
+            return self.handle_discover_searching(input, ctx);
+        }
+
+        // 3. discover_detail_index 模式
+        if self.discover_detail_index.is_some() {
+            return self.handle_discover_detail(input, ctx);
+        }
+
+        // 4. detail_index 模式
+        if self.detail_index.is_some() {
+            return self.handle_installed_detail(input, ctx);
+        }
+
+        // 5. 列表视图（按 PluginPanelView 分发）
+        match self.view {
+            PluginPanelView::Discover => self.handle_discover_list(input, ctx),
+            PluginPanelView::Marketplaces => self.handle_marketplaces_list(input, ctx),
+            PluginPanelView::Installed | PluginPanelView::Errors => {
+                self.handle_installed_list(input, ctx)
+            }
+        }
+    }
+
+    fn handle_paste(&mut self, text: &str, _ctx: &mut PanelContext<'_>) -> EventResult {
+        if self.add_marketplace_active {
+            for ch in text.chars() {
+                self.add_marketplace_input.insert(ch);
+            }
+            return EventResult::Consumed;
+        }
+        if self.discover_searching {
+            for ch in text.chars() {
+                self.discover_search.insert(ch);
+            }
+            self.discover_cursor = 0;
+            return EventResult::Consumed;
+        }
+        EventResult::Consumed
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        if lines > 0 {
+            self.scroll_offset = self.scroll_offset.saturating_add(lines as u16);
+        } else {
+            self.scroll_offset = self.scroll_offset.saturating_sub((-lines) as u16);
+        }
+        EventResult::Consumed
+    }
+
+    fn desired_height(&self, screen_height: u16, _screen_width: u16) -> u16 {
+        screen_height * 70 / 100
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::plugin::render_plugin_panel(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        if self.confirm_delete.is_some() {
+            return vec![
+                ("Enter", "\u{786e}\u{8ba4}\u{5378}\u{8f7d}"),
+                ("\u{5176}\u{4ed6}\u{952e}", "\u{53d6}\u{6d88}"),
+            ];
+        }
+        if self.marketplace_confirm_delete.is_some() {
+            return vec![
+                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
+                ("Esc", "\u{53d6}\u{6d88}"),
+            ];
+        }
+        if self.add_marketplace_active {
+            return vec![("Enter", "\u{6dfb}\u{52a0}"), ("Esc", "\u{53d6}\u{6d88}")];
+        }
+        if self.discover_searching {
+            return vec![
+                ("Esc/\u{2191}\u{2193}", "\u{9000}\u{51fa}\u{641c}\u{7d22}"),
+                ("\u{2190}\u{2192}", "Tab"),
+                ("Enter", "\u{5b89}\u{88c5}"),
+                ("Backspace", "\u{5220}\u{9664}"),
+            ];
+        }
+        if self.discover_detail_index.is_some() {
+            return vec![
+                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+                ("Enter", "\u{6267}\u{884c}"),
+                ("Esc", "\u{8fd4}\u{56de}\u{5217}\u{8868}"),
+            ];
+        }
+        if self.detail_index.is_some() {
+            return vec![
+                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+                ("Enter", "\u{6267}\u{884c}"),
+                ("Esc", "\u{8fd4}\u{56de}\u{5217}\u{8868}"),
+            ];
+        }
+        match self.view {
+            PluginPanelView::Discover => vec![
+                ("\u{2191}\u{2193}", "\u{9009}\u{62e9}"),
+                ("\u{8f93}\u{5165}", "\u{641c}\u{7d22}"),
+                ("Enter", "\u{5b89}\u{88c5}"),
+                ("\u{2190}\u{2192}/Tab", "Tab"),
+                ("Esc", "\u{5173}\u{95ed}"),
+            ],
+            PluginPanelView::Marketplaces => vec![
+                ("\u{2191}\u{2193}", "\u{9009}\u{62e9}"),
+                ("Enter", "\u{6dfb}\u{52a0}/\u{66f4}\u{65b0}"),
+                ("Backspace", "\u{79fb}\u{9664}"),
+                ("\u{2190}\u{2192}/Tab", "Tab"),
+                ("Esc", "\u{5173}\u{95ed}"),
+            ],
+            PluginPanelView::Installed | PluginPanelView::Errors => vec![
+                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+                ("Space", "\u{5207}\u{6362}"),
+                ("Enter", "\u{8be6}\u{60c5}"),
+                ("\u{2190}\u{2192}/Tab", "Tab"),
+                ("Esc", "\u{5173}\u{95ed}"),
+            ],
+        }
+    }
+}
+
+impl PluginPanel {
+    // ─── 内部 handle_key 分发方法 ─────────────────────────────────────────────
+
+    fn handle_confirm_delete(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        match input {
+            Input {
+                key: Key::Enter, ..
+            } => {
+                let (plugin_id, project_path) = if let Some(id) = self.confirm_delete.clone() {
+                    let entry = self.entries.iter().find(|e| e.id == id);
+                    let project_path = entry.and_then(|e| e.project_path.clone());
+                    (Some(id), project_path)
+                } else {
+                    (None, None)
+                };
+
+                if let Some(plugin_id) = plugin_id {
+                    self.uninstalling.insert(plugin_id.clone());
+                    self.confirm_delete = None;
+
+                    let tx = ctx.bg_event_tx.clone();
+                    let claude_dir = rust_agent_middlewares::plugin::claude_home();
+                    let project_dir = project_path.map(std::path::PathBuf::from);
+                    tokio::spawn(async move {
+                        let result = rust_agent_middlewares::plugin::uninstall_plugin(
+                            &plugin_id,
+                            &claude_dir,
+                            project_dir.as_deref(),
+                        )
+                        .await;
+                        let success = result.is_ok();
+                        let message = if let Err(e) = result {
+                            format!("\u{5378}\u{8f7d}\u{5931}\u{8d25}: {e}")
+                        } else {
+                            "\u{5378}\u{8f7d}\u{6210}\u{529f}".to_string()
+                        };
+                        let _ = tx.try_send(super::AgentEvent::PluginActionCompleted {
+                            plugin_id,
+                            action: "uninstall".to_string(),
+                            success,
+                            message,
+                        });
+                    });
+                } else {
+                    self.confirm_delete = None;
+                }
+                EventResult::Consumed
+            }
+            _ => {
+                self.confirm_delete = None;
+                EventResult::Consumed
+            }
+        }
+    }
+
+    fn handle_discover_searching(
+        &mut self,
+        input: Input,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        match input {
+            Input {
+                key: Key::Char(c), ..
+            } => {
+                self.discover_search.insert(c);
+                self.discover_cursor = 0;
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Backspace,
+                ..
+            } => {
+                self.discover_search.backspace();
+                self.discover_cursor = 0;
+                EventResult::Consumed
+            }
+            Input { key: Key::Up, .. } => {
+                self.discover_searching = false;
+                if self.discover_cursor > 0 {
+                    self.discover_cursor -= 1;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                self.discover_searching = false;
+                let max = self.discover_filtered_plugins().len().saturating_sub(1);
+                if self.discover_cursor < max {
+                    self.discover_cursor += 1;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Left, .. } => {
+                self.discover_searching = false;
+                self.discover_cursor = 0;
+                self.view.prev();
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Right, ..
+            } => {
+                self.discover_searching = false;
+                self.discover_cursor = 0;
+                self.view.next();
+                EventResult::Consumed
+            }
+            Input { key: Key::Esc, .. } => {
+                self.discover_searching = false;
+                self.discover_cursor = 0;
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                self.discover_searching = false;
+                self.spawn_install_current(ctx);
+                EventResult::Consumed
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn handle_discover_detail(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        match input {
+            Input { key: Key::Up, .. } => {
+                if self.discover_detail_cursor > 0 {
+                    self.discover_detail_cursor -= 1;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                let max = DiscoverDetailAction::ALL.len().saturating_sub(1);
+                if self.discover_detail_cursor < max {
+                    self.discover_detail_cursor += 1;
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                let action = DiscoverDetailAction::ALL
+                    .get(self.discover_detail_cursor)
+                    .copied();
+                let plugin_idx = self.discover_detail_index;
+                match action {
+                    Some(DiscoverDetailAction::InstallUser) => {
+                        if let Some(dp) = plugin_idx.and_then(|i| self.discover_plugins.get(i)) {
+                            let name = dp.name.clone();
+                            let marketplace = dp.marketplace.clone();
+                            let plugin_id = format!("{}@{}", name, marketplace);
+                            self.installing.insert(plugin_id.clone());
+                            let project_dir = std::path::PathBuf::from(&ctx.cwd);
+                            let claude_dir = rust_agent_middlewares::plugin::claude_home();
+                            let cache_dir =
+                                rust_agent_middlewares::plugin::marketplaces_cache_dir();
+                            let tx = ctx.bg_event_tx.clone();
+                            tokio::spawn(async move {
+                                let result = rust_agent_middlewares::plugin::install_plugin(
+                                    &name,
+                                    &marketplace,
+                                    InstallScope::User,
+                                    &cache_dir,
+                                    &claude_dir,
+                                    Some(&project_dir),
+                                )
+                                .await;
+                                let _ = tx.try_send(super::AgentEvent::PluginActionCompleted {
+                                    plugin_id: format!("{}@{}", name, marketplace),
+                                    action: "install".to_string(),
+                                    success: result.is_ok(),
+                                    message: result
+                                        .map(|_| String::new())
+                                        .unwrap_or_else(|e| e.to_string()),
+                                });
+                            });
+                        }
+                        self.discover_detail_index = None;
+                        self.discover_detail_cursor = 0;
+                    }
+                    Some(DiscoverDetailAction::InstallProject) => {
+                        if let Some(dp) = plugin_idx.and_then(|i| self.discover_plugins.get(i)) {
+                            let name = dp.name.clone();
+                            let marketplace = dp.marketplace.clone();
+                            let plugin_id = format!("{}@{}", name, marketplace);
+                            self.installing.insert(plugin_id.clone());
+                            let project_dir = std::path::PathBuf::from(&ctx.cwd);
+                            let claude_dir = rust_agent_middlewares::plugin::claude_home();
+                            let cache_dir =
+                                rust_agent_middlewares::plugin::marketplaces_cache_dir();
+                            let tx = ctx.bg_event_tx.clone();
+                            tokio::spawn(async move {
+                                let result = rust_agent_middlewares::plugin::install_plugin(
+                                    &name,
+                                    &marketplace,
+                                    InstallScope::Project,
+                                    &cache_dir,
+                                    &claude_dir,
+                                    Some(&project_dir),
+                                )
+                                .await;
+                                let _ = tx.try_send(super::AgentEvent::PluginActionCompleted {
+                                    plugin_id: format!("{}@{}", name, marketplace),
+                                    action: "install".to_string(),
+                                    success: result.is_ok(),
+                                    message: result
+                                        .map(|_| String::new())
+                                        .unwrap_or_else(|e| e.to_string()),
+                                });
+                            });
+                        }
+                        self.discover_detail_index = None;
+                        self.discover_detail_cursor = 0;
+                    }
+                    Some(DiscoverDetailAction::BackToList) => {
+                        self.discover_detail_index = None;
+                        self.discover_detail_cursor = 0;
+                    }
+                    None => {}
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Esc, .. } => {
+                self.discover_detail_index = None;
+                self.discover_detail_cursor = 0;
+                EventResult::Consumed
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn handle_installed_detail(&mut self, input: Input, ctx: &PanelContext<'_>) -> EventResult {
+        match input {
+            Input { key: Key::Up, .. } => {
+                if self.detail_cursor > 0 {
+                    self.detail_cursor -= 1;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                let max = DetailAction::ALL.len().saturating_sub(1);
+                if self.detail_cursor < max {
+                    self.detail_cursor += 1;
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                self.do_detail_action(ctx);
+                EventResult::Consumed
+            }
+            Input { key: Key::Esc, .. } => {
+                self.detail_index = None;
+                self.detail_cursor = 0;
+                self.scroll_offset = 0;
+                EventResult::Consumed
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn handle_installed_list(&mut self, input: Input, ctx: &PanelContext<'_>) -> EventResult {
+        match input {
+            Input {
+                key: Key::Right, ..
+            }
+            | Input { key: Key::Tab, .. } => {
+                self.view.next();
+                self.cursor = 0;
+                self.scroll_offset = 0;
+                EventResult::Consumed
+            }
+            Input { key: Key::Left, .. } => {
+                self.view.prev();
+                self.cursor = 0;
+                self.scroll_offset = 0;
+                EventResult::Consumed
+            }
+            Input { key: Key::Up, .. } => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                let max = self.current_list_len().saturating_sub(1);
+                if self.cursor < max {
+                    self.cursor += 1;
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Char(' '),
+                ..
+            } => {
+                if let Some(&entry_idx) = self.visible_indices().get(self.cursor) {
+                    if let Some(entry) = self.entries.get_mut(entry_idx) {
+                        entry.enabled = !entry.enabled;
+                    }
+                }
+                self.persist_enabled_state(ctx.claude_settings_override);
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                if let Some(&entry_idx) = self.visible_indices().get(self.cursor) {
+                    self.detail_index = Some(entry_idx);
+                    self.detail_cursor = 0;
+                    self.scroll_offset = 0;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn handle_discover_list(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        match input {
+            Input {
+                key: Key::Right, ..
+            }
+            | Input { key: Key::Tab, .. } => {
+                self.view.next();
+                self.cursor = 0;
+                self.scroll_offset = 0;
+                EventResult::Consumed
+            }
+            Input { key: Key::Left, .. } => {
+                self.view.prev();
+                self.cursor = 0;
+                self.scroll_offset = 0;
+                EventResult::Consumed
+            }
+            Input { key: Key::Up, .. } => {
+                if self.discover_cursor > 0 {
+                    self.discover_cursor -= 1;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                let max = self.discover_filtered_plugins().len().saturating_sub(1);
+                if self.discover_cursor < max {
+                    self.discover_cursor += 1;
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Char(c), ..
+            } => {
+                self.discover_searching = true;
+                self.discover_search.insert(c);
+                self.discover_cursor = 0;
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                self.spawn_install_current(ctx);
+                EventResult::Consumed
+            }
+            Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn handle_marketplaces_list(
+        &mut self,
+        input: Input,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        // marketplace_confirm_delete 子状态
+        if self.marketplace_confirm_delete.is_some() {
+            return self.handle_marketplace_confirm_delete(input, ctx);
+        }
+
+        // add_marketplace_active 子状态
+        if self.add_marketplace_active {
+            return self.handle_marketplace_add(input, ctx);
+        }
+
+        // 默认列表视图
+        match input {
+            Input {
+                key: Key::Right, ..
+            }
+            | Input { key: Key::Tab, .. } => {
+                self.view.next();
+                self.cursor = 0;
+                self.scroll_offset = 0;
+                EventResult::Consumed
+            }
+            Input { key: Key::Left, .. } => {
+                self.view.prev();
+                self.cursor = 0;
+                self.scroll_offset = 0;
+                EventResult::Consumed
+            }
+            Input { key: Key::Up, .. } => {
+                if self.marketplace_cursor > 0 {
+                    self.marketplace_cursor -= 1;
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                let max = self.marketplace_entries.len();
+                if self.marketplace_cursor < max {
+                    self.marketplace_cursor += 1;
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                if self.marketplace_cursor == 0 {
+                    // Add Marketplace
+                    self.add_marketplace_input = InputState::new();
+                    self.add_marketplace_active = true;
+                } else if let Some(entry) =
+                    self.marketplace_entries.get(self.marketplace_cursor - 1)
+                {
+                    let name = entry.name.clone();
+                    let source = entry.source.clone();
+                    self.marketplace_updating.insert(name.clone());
+                    let name_for_msg = name.clone();
+                    let source_for_update = source.clone();
+                    let tx = ctx.bg_event_tx.clone();
+                    tokio::spawn(async move {
+                        let result =
+                            rust_agent_middlewares::plugin::marketplace::refresh_marketplace(
+                                &source, &name,
+                            )
+                            .await;
+                        match result {
+                            Ok((_manifest, install_location)) => {
+                                if let Ok(mut marketplaces) =
+                                    rust_agent_middlewares::plugin::load_known_marketplaces(None)
+                                {
+                                    if let Some(km) = marketplaces
+                                        .iter_mut()
+                                        .find(|km| km.source == source_for_update)
+                                    {
+                                        km.install_location = install_location;
+                                        km.last_updated = chrono::Utc::now().to_rfc3339();
+                                        let _ =
+                                            rust_agent_middlewares::plugin::save_known_marketplaces(
+                                                &marketplaces,
+                                                None,
+                                            );
+                                    }
+                                }
+                                let _ = tx
+                                    .send(super::AgentEvent::PluginActionCompleted {
+                                        plugin_id: name.clone(),
+                                        action: "refresh".to_string(),
+                                        success: true,
+                                        message: format!(
+                                            "Marketplace '{}' \u{5df2}\u{66f4}\u{65b0}",
+                                            name
+                                        ),
+                                    })
+                                    .await;
+                            }
+                            Err(e) => {
+                                let _ = tx
+                                    .send(super::AgentEvent::PluginActionCompleted {
+                                        plugin_id: name.clone(),
+                                        action: "refresh".to_string(),
+                                        success: false,
+                                        message: format!("\u{66f4}\u{65b0}\u{5931}\u{8d25}: {}", e),
+                                    })
+                                    .await;
+                            }
+                        }
+                    });
+                    ctx.sessions[ctx.active].core.view_messages.push(
+                        super::MessageViewModel::system(format!(
+                            "\u{6b63}\u{5728}\u{66f4}\u{65b0} marketplace: {}",
+                            name_for_msg
+                        )),
+                    );
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Backspace,
+                ..
+            } => {
+                if self.marketplace_cursor > 0 {
+                    let idx = self.marketplace_cursor - 1;
+                    if self.marketplace_entries.get(idx).is_some() {
+                        self.marketplace_confirm_delete = Some(idx);
+                    }
+                }
+                EventResult::Consumed
+            }
+            Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn handle_marketplace_confirm_delete(
+        &mut self,
+        input: Input,
+        ctx: &mut PanelContext<'_>,
+    ) -> EventResult {
+        match input {
+            Input { key: Key::Esc, .. } => {
+                self.marketplace_confirm_delete = None;
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                if let Some(idx) = self.marketplace_confirm_delete.take() {
+                    if let Some(entry) = self.marketplace_entries.get(idx) {
+                        let name = entry.name.clone();
+                        self.marketplace_entries.remove(idx);
+                        let max = self.marketplace_entries.len();
+                        if self.marketplace_cursor > max {
+                            self.marketplace_cursor = max;
+                        }
+
+                        // Persist delete
+                        if let Err(e) = self.persist_marketplace_delete(&name) {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                super::MessageViewModel::system(format!(
+                                    "\u{5220}\u{9664}\u{5931}\u{8d25}: {}",
+                                    e
+                                )),
+                            );
+                        }
+                    }
+                }
+                EventResult::Consumed
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn handle_marketplace_add(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        match input {
+            Input { key: Key::Esc, .. } => {
+                self.add_marketplace_active = false;
+                self.add_marketplace_input = InputState::new();
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                let input_str = self.add_marketplace_input.value().trim().to_string();
+                self.add_marketplace_active = false;
+                self.add_marketplace_input = InputState::new();
+                if !input_str.is_empty() {
+                    if let Err(e) = self.persist_marketplace_add(&input_str, ctx) {
+                        ctx.sessions[ctx.active].core.view_messages.push(
+                            super::MessageViewModel::system(format!(
+                                "\u{6dfb}\u{52a0}\u{5931}\u{8d25}: {}",
+                                e
+                            )),
+                        );
+                    }
+                }
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Backspace,
+                ..
+            } => {
+                self.add_marketplace_input.backspace();
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Char(ch), ..
+            } => {
+                self.add_marketplace_input.insert(ch);
+                EventResult::Consumed
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    // ─── 辅助方法 ──────────────────────────────────────────────────────────
+
+    /// 异步安装 Discover 视图中当前光标处的插件
+    fn spawn_install_current(&mut self, ctx: &PanelContext<'_>) {
+        let plugin = match self.discover_current_plugin() {
+            Some(p) => p,
+            None => return,
+        };
+        let name = plugin.name.clone();
+        let marketplace = plugin.marketplace.clone();
+        let plugin_id = plugin.plugin_id.clone();
+        self.installing.insert(plugin_id.clone());
+
+        let project_dir = std::path::PathBuf::from(&ctx.cwd);
+        let claude_dir = rust_agent_middlewares::plugin::claude_home();
+        let cache_dir = rust_agent_middlewares::plugin::marketplaces_cache_dir();
+        let tx = ctx.bg_event_tx.clone();
+        tokio::spawn(async move {
+            let result = rust_agent_middlewares::plugin::install_plugin(
+                &name,
+                &marketplace,
+                InstallScope::User,
+                &cache_dir,
+                &claude_dir,
+                Some(&project_dir),
+            )
+            .await;
+            let _ = tx.try_send(super::AgentEvent::PluginActionCompleted {
+                plugin_id,
+                action: "install".to_string(),
+                success: result.is_ok(),
+                message: result
+                    .map(|_| String::new())
+                    .unwrap_or_else(|e| e.to_string()),
+            });
+        });
+    }
+
+    /// 执行详情页当前操作（ToggleEnabled/Uninstall/BackToList）
+    fn do_detail_action(&mut self, ctx: &PanelContext<'_>) {
+        let action = DetailAction::ALL.get(self.detail_cursor).copied();
+        let entry_idx = self.detail_index;
+        match action {
+            Some(DetailAction::ToggleEnabled) => {
+                if let Some(idx) = entry_idx {
+                    if let Some(entry) = self.entries.get_mut(idx) {
+                        entry.enabled = !entry.enabled;
+                    }
+                }
+                self.persist_enabled_state(ctx.claude_settings_override);
+            }
+            Some(DetailAction::Uninstall) => {
+                if let Some(idx) = entry_idx {
+                    let id = self.entries.get(idx).map(|e| e.id.clone());
+                    if let Some(id) = id {
+                        self.confirm_delete = Some(id);
+                    }
+                }
+            }
+            Some(DetailAction::BackToList) => {
+                self.detail_index = None;
+                self.detail_cursor = 0;
+                self.scroll_offset = 0;
+            }
+            None => {}
+        }
+    }
+
+    /// 持久化 enabled 状态到 Claude settings
+    fn persist_enabled_state(&self, claude_settings_override: Option<&std::path::PathBuf>) {
+        let states: Vec<(String, bool)> = self
+            .entries
+            .iter()
+            .map(|e| (e.id.clone(), e.enabled))
+            .collect();
+        if let Err(e) = rust_agent_middlewares::plugin::save_claude_settings_enabled_plugins(
+            &states,
+            claude_settings_override.map(|p| p.as_path()),
+        ) {
+            tracing::warn!(error = %e, "\u{4fdd}\u{5b58} enabledPlugins \u{5931}\u{8d25}");
+        }
+    }
+
+    /// 持久化删除 marketplace
+    fn persist_marketplace_delete(&self, name: &str) -> anyhow::Result<()> {
+        use rust_agent_middlewares::plugin::{
+            load_known_marketplaces, save_known_marketplaces, MarketplaceSource,
+        };
+        let marketplaces = load_known_marketplaces(None).unwrap_or_default();
+        let filtered: Vec<_> = marketplaces
+            .into_iter()
+            .filter(|km| {
+                let km_name = match &km.source {
+                    MarketplaceSource::GitHub { repo } => {
+                        repo.split('/').next_back().unwrap_or(repo).to_string()
+                    }
+                    MarketplaceSource::Git { url } => url
+                        .split('/')
+                        .next_back()
+                        .and_then(|s| s.strip_suffix(".git"))
+                        .unwrap_or("marketplace")
+                        .to_string(),
+                    MarketplaceSource::Url { url } => {
+                        let last = url.split('/').next_back().unwrap_or("marketplace");
+                        last.strip_suffix(".json").unwrap_or(last).to_string()
+                    }
+                    MarketplaceSource::File { path } => std::path::Path::new(path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("marketplace")
+                        .to_string(),
+                    MarketplaceSource::Directory { path } => std::path::Path::new(path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("marketplace")
+                        .to_string(),
+                    MarketplaceSource::Npm { package } => {
+                        package.split('@').next().unwrap_or(package).to_string()
+                    }
+                };
+                km_name != name
+            })
+            .collect();
+        save_known_marketplaces(&filtered, None)?;
+        Ok(())
+    }
+
+    /// 持久化添加 marketplace
+    fn persist_marketplace_add(
+        &mut self,
+        input: &str,
+        ctx: &mut PanelContext<'_>,
+    ) -> anyhow::Result<()> {
+        use rust_agent_middlewares::plugin::{
+            load_known_marketplaces, parse_marketplace_input, save_known_marketplaces,
+            KnownMarketplace, MarketplaceManager,
+        };
+        let source = parse_marketplace_input(input)
+            .map_err(|e| anyhow::anyhow!("\u{89e3}\u{6790}\u{5931}\u{8d25}: {}", e))?;
+        let mut marketplaces = load_known_marketplaces(None).unwrap_or_default();
+        for existing in &marketplaces {
+            if existing.source == source {
+                anyhow::bail!("Marketplace \u{5df2}\u{5b58}\u{5728}");
+            }
+        }
+        let name = MarketplaceManager::extract_name(&source);
+        let new_entry = KnownMarketplace {
+            source: source.clone(),
+            install_location: String::new(),
+            auto_update: false,
+            last_updated: String::new(),
+        };
+        marketplaces.push(new_entry);
+        save_known_marketplaces(&marketplaces, None)?;
+
+        ctx.sessions[ctx.active]
+            .core
+            .view_messages
+            .push(super::MessageViewModel::system(format!(
+                "Marketplace \u{5df2}\u{6dfb}\u{52a0}: {} (\u{6b63}\u{5728}\u{83b7}\u{53d6}\u{5185}\u{5bb9}...)",
+                name
+            )));
+
+        // Add placeholder entry to marketplace_entries
+        self.marketplace_entries.push(MarketplaceViewEntry {
+            name: name.clone(),
+            source: source.clone(),
+            source_label: format!("{:?}", source),
+            plugin_count: 0,
+            installed_count: 0,
+            status: MarketplaceViewStatus::Fetching,
+            last_updated: None,
+            auto_update: false,
+        });
+
+        // Spawn background refresh
+        let name_clone = name.clone();
+        let tx = ctx.bg_event_tx.clone();
+        tokio::spawn(async move {
+            use rust_agent_middlewares::plugin::marketplace::refresh_marketplace;
+            match refresh_marketplace(&source, &name_clone).await {
+                Ok((_manifest, install_location)) => {
+                    if let Ok(mut mkt_places) =
+                        rust_agent_middlewares::plugin::load_known_marketplaces(None)
+                    {
+                        if let Some(entry) = mkt_places.iter_mut().find(|km| km.source == source) {
+                            entry.install_location = install_location;
+                            entry.last_updated = chrono::Utc::now().to_rfc3339();
+                            let _ = rust_agent_middlewares::plugin::save_known_marketplaces(
+                                &mkt_places,
+                                None,
+                            );
+                        }
+                    }
+                    let _ = tx
+                        .send(super::AgentEvent::PluginActionCompleted {
+                            plugin_id: name_clone.clone(),
+                            action: "add".to_string(),
+                            success: true,
+                            message: format!(
+                                "Marketplace '{}' \u{5185}\u{5bb9}\u{5df2}\u{83b7}\u{53d6}",
+                                name_clone
+                            ),
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(super::AgentEvent::PluginActionCompleted {
+                            plugin_id: name_clone.clone(),
+                            action: "add".to_string(),
+                            success: false,
+                            message: format!(
+                                "\u{83b7}\u{53d6}\u{5185}\u{5bb9}\u{5931}\u{8d25}: {}",
+                                e
+                            ),
+                        })
+                        .await;
+                }
+            }
+        });
+
+        Ok(())
+    }
+}
+
+// ─── App 操作方法 ────────────────────────────────────────────────────────────
 
 impl App {
     pub fn plugin_panel_move_up(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if panel.cursor > 0 {
                 panel.cursor -= 1;
             }
@@ -303,7 +1262,7 @@ impl App {
     }
 
     pub fn plugin_panel_move_down(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             let max = panel.current_list_len().saturating_sub(1);
             if panel.cursor < max {
                 panel.cursor += 1;
@@ -312,7 +1271,7 @@ impl App {
     }
 
     pub fn plugin_panel_tab(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.view.next();
             panel.cursor = 0;
             panel.scroll_offset = 0;
@@ -320,7 +1279,7 @@ impl App {
     }
 
     pub fn plugin_panel_shift_tab(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.view.prev();
             panel.cursor = 0;
             panel.scroll_offset = 0;
@@ -328,11 +1287,11 @@ impl App {
     }
 
     pub fn plugin_panel_close(&mut self) {
-        self.plugin_panel = None;
+        self.global_panels.close();
     }
 
     pub fn plugin_panel_request_delete(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if let Some(entry) = panel.selected_entry() {
                 panel.confirm_delete = Some(entry.id.clone());
             }
@@ -340,13 +1299,13 @@ impl App {
     }
 
     pub fn plugin_panel_cancel_delete(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.confirm_delete = None;
         }
     }
 
     pub fn plugin_panel_confirm_delete(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if let Some(id) = panel.confirm_delete.take() {
                 panel.entries.retain(|p| p.id != id);
             }
@@ -354,7 +1313,7 @@ impl App {
     }
 
     pub fn plugin_panel_toggle_enabled(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if let Some(entry_idx) = panel.visible_indices().get(panel.cursor).copied() {
                 if let Some(entry) = panel.entries.get_mut(entry_idx) {
                     entry.enabled = !entry.enabled;
@@ -366,7 +1325,7 @@ impl App {
 
     /// 将当前面板中所有插件的启用状态持久化到 ~/.claude/settings.json
     fn persist_plugin_enabled_state(&self) {
-        if let Some(panel) = &self.plugin_panel {
+        if let Some(panel) = self.global_panels.get::<PluginPanel>() {
             let states: Vec<(String, bool)> = panel
                 .entries
                 .iter()
@@ -383,7 +1342,7 @@ impl App {
 
     /// 进入选中插件的详情视图
     pub fn plugin_panel_enter_detail(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if let Some(&entry_idx) = panel.visible_indices().get(panel.cursor) {
                 panel.detail_index = Some(entry_idx);
                 panel.detail_cursor = 0;
@@ -394,7 +1353,7 @@ impl App {
 
     /// 退出详情视图回到列表
     pub fn plugin_panel_exit_detail(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.detail_index = None;
             panel.detail_cursor = 0;
             panel.scroll_offset = 0;
@@ -403,7 +1362,7 @@ impl App {
 
     /// 详情页操作菜单上移
     pub fn plugin_panel_detail_up(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if panel.detail_cursor > 0 {
                 panel.detail_cursor -= 1;
             }
@@ -412,7 +1371,7 @@ impl App {
 
     /// 详情页操作菜单下移
     pub fn plugin_panel_detail_down(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             let max = DetailAction::ALL.len().saturating_sub(1);
             if panel.detail_cursor < max {
                 panel.detail_cursor += 1;
@@ -422,7 +1381,7 @@ impl App {
 
     /// 执行详情页当前操作
     pub fn plugin_panel_detail_action(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             let action = DetailAction::ALL.get(panel.detail_cursor).copied();
             let entry_idx = panel.detail_index;
             match action {
@@ -468,7 +1427,7 @@ impl App {
     // ─── Discover 视图操作 ─────────────────────────────────────────────────────
 
     pub fn discover_move_up(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if panel.discover_cursor > 0 {
                 panel.discover_cursor -= 1;
             }
@@ -476,7 +1435,7 @@ impl App {
     }
 
     pub fn discover_move_down(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             let max = panel.discover_filtered_plugins().len().saturating_sub(1);
             if panel.discover_cursor < max {
                 panel.discover_cursor += 1;
@@ -486,7 +1445,7 @@ impl App {
 
     #[allow(dead_code)]
     pub fn discover_toggle_selected(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if let Some(plugin) = panel.discover_current_plugin() {
                 let id = plugin.plugin_id.clone();
                 if panel.discover_selected.contains(&id) {
@@ -499,34 +1458,34 @@ impl App {
     }
 
     pub fn discover_enter_search(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_searching = true;
         }
     }
 
     pub fn discover_exit_search(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_searching = false;
             panel.discover_cursor = 0;
         }
     }
 
     pub fn discover_search_input(&mut self, ch: char) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_search.insert(ch);
             panel.discover_cursor = 0;
         }
     }
 
     pub fn discover_search_backspace(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_search.backspace();
             panel.discover_cursor = 0;
         }
     }
 
     pub fn discover_enter_detail(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if panel.discover_current_plugin().is_some() {
                 panel.discover_detail_index = Some(panel.discover_cursor);
                 panel.discover_detail_cursor = 0;
@@ -535,14 +1494,14 @@ impl App {
     }
 
     pub fn discover_exit_detail(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.discover_detail_index = None;
             panel.discover_detail_cursor = 0;
         }
     }
 
     pub fn discover_detail_up(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if panel.discover_detail_cursor > 0 {
                 panel.discover_detail_cursor -= 1;
             }
@@ -550,7 +1509,7 @@ impl App {
     }
 
     pub fn discover_detail_down(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             let max = DiscoverDetailAction::ALL.len().saturating_sub(1);
             if panel.discover_detail_cursor < max {
                 panel.discover_detail_cursor += 1;
@@ -560,7 +1519,7 @@ impl App {
 
     /// 执行 Discover 详情页操作（安装或返回）
     pub fn discover_detail_action(&mut self) -> Option<(String, String, InstallScope)> {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             let action = DiscoverDetailAction::ALL
                 .get(panel.discover_detail_cursor)
                 .copied();
@@ -593,7 +1552,7 @@ impl App {
     // ─── Marketplaces 视图操作 ──────────────────────────────────────────────────
 
     pub fn marketplace_move_up(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if panel.marketplace_cursor > 0 {
                 panel.marketplace_cursor -= 1;
             }
@@ -601,7 +1560,7 @@ impl App {
     }
 
     pub fn marketplace_move_down(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，最大值是 marketplace_entries.len()
             let max = panel.marketplace_entries.len();
             if panel.marketplace_cursor < max {
@@ -612,16 +1571,16 @@ impl App {
 
     /// 检查当前是否选中了 "Add Marketplace" 选项
     pub fn marketplace_is_add_selected(&self) -> bool {
-        self.plugin_panel
-            .as_ref()
+        self.global_panels
+            .get::<PluginPanel>()
             .map(|p| p.marketplace_cursor == 0)
             .unwrap_or(false)
     }
 
     /// 获取当前选中的 marketplace 名称（如果选中 Add Marketplace 则返回 None）
     pub fn marketplace_current_name(&self) -> Option<String> {
-        self.plugin_panel
-            .as_ref()
+        self.global_panels
+            .get::<PluginPanel>()
             .filter(|p| p.marketplace_cursor > 0)
             .and_then(|p| p.marketplace_entries.get(p.marketplace_cursor - 1))
             .map(|m| m.name.clone())
@@ -629,7 +1588,7 @@ impl App {
 
     /// 请求删除当前 marketplace（进入确认状态）
     pub fn marketplace_request_delete(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，不能删除
             if panel.marketplace_cursor > 0 {
                 let idx = panel.marketplace_cursor - 1;
@@ -642,14 +1601,14 @@ impl App {
 
     /// 取消删除 marketplace
     pub fn marketplace_cancel_delete(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.marketplace_confirm_delete = None;
         }
     }
 
     /// 确认删除当前 marketplace，返回要删除的 marketplace 名称
     pub fn marketplace_confirm_delete(&mut self) -> Option<String> {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             if let Some(idx) = panel.marketplace_confirm_delete.take() {
                 if let Some(entry) = panel.marketplace_entries.get(idx) {
                     let name = entry.name.clone();
@@ -669,7 +1628,7 @@ impl App {
 
     /// 请求更新当前 marketplace（添加到 updating 集合）
     pub fn marketplace_request_update(&mut self) -> Option<String> {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，不能更新
             if panel.marketplace_cursor > 0 {
                 let idx = panel.marketplace_cursor - 1;
@@ -687,7 +1646,7 @@ impl App {
     pub fn marketplace_request_update_with_source(
         &mut self,
     ) -> Option<(String, rust_agent_middlewares::plugin::MarketplaceSource)> {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             // cursor = 0 是 Add Marketplace，不能更新
             if panel.marketplace_cursor > 0 {
                 let idx = panel.marketplace_cursor - 1;
@@ -704,14 +1663,14 @@ impl App {
 
     /// 标记 marketplace 更新完成
     pub fn marketplace_update_done(&mut self, name: &str) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.marketplace_updating.remove(name);
         }
     }
 
     /// 进入添加 marketplace 模式
     pub fn marketplace_enter_add(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.add_marketplace_input = InputState::new();
             panel.add_marketplace_active = true;
         }
@@ -719,7 +1678,7 @@ impl App {
 
     /// 退出添加 marketplace 模式
     pub fn marketplace_exit_add(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.add_marketplace_active = false;
             panel.add_marketplace_input = InputState::new();
         }
@@ -727,21 +1686,21 @@ impl App {
 
     /// 添加 marketplace 输入字符
     pub fn marketplace_add_input(&mut self, ch: char) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.add_marketplace_input.insert(ch);
         }
     }
 
     /// 添加 marketplace 退格
     pub fn marketplace_add_backspace(&mut self) {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             panel.add_marketplace_input.backspace();
         }
     }
 
     /// 确认添加 marketplace，返回输入的 source 字符串
     pub fn marketplace_add_confirm(&mut self) -> Option<String> {
-        if let Some(panel) = &mut self.plugin_panel {
+        if let Some(panel) = self.global_panels.get_mut::<PluginPanel>() {
             let input = panel.add_marketplace_input.value().trim().to_string();
             panel.add_marketplace_active = false;
             panel.add_marketplace_input = InputState::new();
@@ -797,43 +1756,45 @@ mod tests {
             make_entry("c@test", "c", true),
         ]);
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.plugin_panel = Some(panel);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Plugin(panel));
 
         for _ in 0..5 {
             app.plugin_panel_move_up();
         }
-        assert_eq!(app.plugin_panel.as_ref().unwrap().cursor, 0);
+        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor, 0);
 
         for _ in 0..5 {
             app.plugin_panel_move_down();
         }
-        assert_eq!(app.plugin_panel.as_ref().unwrap().cursor, 2);
+        assert_eq!(app.global_panels.get::<PluginPanel>().unwrap().cursor, 2);
     }
 
     #[tokio::test]
     async fn test_plugin_panel_tab_cycles_views() {
         let panel = PluginPanel::new(vec![]);
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.plugin_panel = Some(panel);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Plugin(panel));
 
         app.plugin_panel_tab();
         assert_eq!(
-            app.plugin_panel.as_ref().unwrap().view,
+            app.global_panels.get::<PluginPanel>().unwrap().view,
             PluginPanelView::Discover
         );
         app.plugin_panel_tab();
         assert_eq!(
-            app.plugin_panel.as_ref().unwrap().view,
+            app.global_panels.get::<PluginPanel>().unwrap().view,
             PluginPanelView::Marketplaces
         );
         app.plugin_panel_tab();
         assert_eq!(
-            app.plugin_panel.as_ref().unwrap().view,
+            app.global_panels.get::<PluginPanel>().unwrap().view,
             PluginPanelView::Errors
         );
         app.plugin_panel_tab();
         assert_eq!(
-            app.plugin_panel.as_ref().unwrap().view,
+            app.global_panels.get::<PluginPanel>().unwrap().view,
             PluginPanelView::Installed
         );
     }
@@ -842,16 +1803,17 @@ mod tests {
     async fn test_plugin_panel_shift_tab_cycles_back() {
         let panel = PluginPanel::new(vec![]);
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.plugin_panel = Some(panel);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Plugin(panel));
 
         app.plugin_panel_shift_tab();
         assert_eq!(
-            app.plugin_panel.as_ref().unwrap().view,
+            app.global_panels.get::<PluginPanel>().unwrap().view,
             PluginPanelView::Errors
         );
         app.plugin_panel_shift_tab();
         assert_eq!(
-            app.plugin_panel.as_ref().unwrap().view,
+            app.global_panels.get::<PluginPanel>().unwrap().view,
             PluginPanelView::Marketplaces
         );
     }
@@ -860,38 +1822,49 @@ mod tests {
     async fn test_plugin_panel_close() {
         let panel = PluginPanel::new(vec![]);
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.plugin_panel = Some(panel);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Plugin(panel));
         app.plugin_panel_close();
-        assert!(app.plugin_panel.is_none());
+        assert!(!app.global_panels.is_active(crate::app::PanelKind::Plugin));
     }
 
     #[tokio::test]
     async fn test_plugin_panel_request_cancel_delete() {
         let panel = PluginPanel::new(vec![make_entry("my-plugin@test", "my-plugin", true)]);
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.plugin_panel = Some(panel);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Plugin(panel));
 
         app.plugin_panel_request_delete();
         assert_eq!(
-            app.plugin_panel.as_ref().unwrap().confirm_delete,
+            app.global_panels
+                .get::<PluginPanel>()
+                .unwrap()
+                .confirm_delete,
             Some("my-plugin@test".into())
         );
 
         app.plugin_panel_cancel_delete();
-        assert!(app.plugin_panel.as_ref().unwrap().confirm_delete.is_none());
+        assert!(app
+            .global_panels
+            .get::<PluginPanel>()
+            .unwrap()
+            .confirm_delete
+            .is_none());
     }
 
     #[tokio::test]
     async fn test_plugin_panel_toggle_enabled() {
         let panel = PluginPanel::new(vec![make_entry("p@test", "p", true)]);
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.plugin_panel = Some(panel);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Plugin(panel));
 
         app.plugin_panel_toggle_enabled();
-        assert!(!app.plugin_panel.as_ref().unwrap().entries[0].enabled);
+        assert!(!app.global_panels.get::<PluginPanel>().unwrap().entries[0].enabled);
 
         app.plugin_panel_toggle_enabled();
-        assert!(app.plugin_panel.as_ref().unwrap().entries[0].enabled);
+        assert!(app.global_panels.get::<PluginPanel>().unwrap().entries[0].enabled);
     }
 
     #[tokio::test]
@@ -900,15 +1873,28 @@ mod tests {
         entry.load_error = Some("missing manifest".into());
         let panel = PluginPanel::new(vec![make_entry("good@t", "good-plugin", true), entry]);
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.plugin_panel = Some(panel);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Plugin(panel));
 
         // Default view (Installed): 2 items
-        assert_eq!(app.plugin_panel.as_ref().unwrap().current_list_len(), 2);
+        assert_eq!(
+            app.global_panels
+                .get::<PluginPanel>()
+                .unwrap()
+                .current_list_len(),
+            2
+        );
 
         // Switch to Errors view: 1 item
         app.plugin_panel_tab(); // -> Discover
         app.plugin_panel_tab(); // -> Marketplaces
         app.plugin_panel_tab(); // -> Errors
-        assert_eq!(app.plugin_panel.as_ref().unwrap().current_list_len(), 1);
+        assert_eq!(
+            app.global_panels
+                .get::<PluginPanel>()
+                .unwrap()
+                .current_list_len(),
+            1
+        );
     }
 }

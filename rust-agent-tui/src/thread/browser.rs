@@ -1,6 +1,17 @@
-use super::{ThreadId, ThreadMeta, ThreadStore};
-use perihelion_widgets::InputState;
+use std::any::Any;
 use std::sync::Arc;
+
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_textarea::Input;
+
+use perihelion_widgets::InputState;
+
+use crate::app::panel_component::PanelComponent;
+use crate::app::panel_manager::{EventResult, PanelContext, PanelKind};
+use crate::app::App;
+
+use super::{ThreadId, ThreadMeta, ThreadStore};
 
 /// TUI 内 Thread 历史浏览面板
 #[derive(Clone)]
@@ -127,5 +138,220 @@ impl ThreadBrowser {
             .iter()
             .filter_map(|&idx| self.threads.get(idx))
             .collect()
+    }
+}
+
+impl PanelComponent for ThreadBrowser {
+    fn kind(&self) -> PanelKind {
+        PanelKind::ThreadBrowser
+    }
+
+    fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        use tui_textarea::Key;
+
+        // confirm_delete mode
+        if self.confirm_delete {
+            match input {
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    self.confirm_delete = false;
+                    if let Some(title) = self.delete_selected() {
+                        ctx.sessions[ctx.active].core.view_messages.push(
+                            crate::ui::message_view::MessageViewModel::system(format!(
+                                "\u{5df2}\u{5220}\u{9664}\u{5bf9}\u{8bdd}: {}",
+                                title
+                            )),
+                        );
+                    }
+                    // if empty after delete, close
+                    if self.total() == 0 {
+                        EventResult::ClosePanel
+                    } else {
+                        EventResult::Consumed
+                    }
+                }
+                _ => {
+                    self.confirm_delete = false;
+                    EventResult::Consumed
+                }
+            }
+        } else if self.search_focused {
+            // search focused mode
+            match input {
+                Input {
+                    key: Key::Char('c'),
+                    ctrl: true,
+                    ..
+                } => EventResult::Consumed,
+                Input { key: Key::Esc, .. } => {
+                    if !self.search_query.value().is_empty() {
+                        self.search_query.set_value(String::new());
+                        self.refresh_filter();
+                        EventResult::Consumed
+                    } else {
+                        EventResult::ClosePanel
+                    }
+                }
+                Input {
+                    key: Key::Char('v'),
+                    ctrl: true,
+                    ..
+                } => {
+                    if let Ok(text) = arboard::Clipboard::new().and_then(|mut cb| cb.get_text()) {
+                        self.search_query.paste(&text);
+                        self.refresh_filter();
+                    }
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Char(c), ..
+                } => {
+                    self.search_query.insert(c);
+                    self.refresh_filter();
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Backspace,
+                    ..
+                } => {
+                    self.search_query.backspace();
+                    self.refresh_filter();
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Delete, ..
+                } => {
+                    self.search_query.delete();
+                    self.refresh_filter();
+                    EventResult::Consumed
+                }
+                Input { key: Key::Left, .. } => {
+                    self.search_query.cursor_left();
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Right, ..
+                } => {
+                    self.search_query.cursor_right();
+                    EventResult::Consumed
+                }
+                Input { key: Key::Home, .. } => {
+                    self.search_query.cursor_home();
+                    EventResult::Consumed
+                }
+                Input { key: Key::End, .. } => {
+                    self.search_query.cursor_end();
+                    EventResult::Consumed
+                }
+                // Down / Tab -> exit search
+                Input { key: Key::Down, .. } | Input { key: Key::Tab, .. } => {
+                    self.search_focused = false;
+                    EventResult::Consumed
+                }
+                // Enter: open selected thread
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    if let Some(id) = self.selected_id().cloned() {
+                        return EventResult::OpenThread(id);
+                    }
+                    EventResult::Consumed
+                }
+                _ => EventResult::Consumed,
+            }
+        } else {
+            // list mode
+            match input {
+                Input {
+                    key: Key::Char('c'),
+                    ctrl: true,
+                    ..
+                } => EventResult::Consumed,
+                Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+                Input { key: Key::Up, .. } => {
+                    self.move_cursor(-1);
+                    EventResult::Consumed
+                }
+                Input { key: Key::Down, .. } => {
+                    self.move_cursor(1);
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    if let Some(id) = self.selected_id().cloned() {
+                        return EventResult::OpenThread(id);
+                    }
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Char('d'),
+                    ctrl: true,
+                    ..
+                } => {
+                    if self.total() > 0 {
+                        self.confirm_delete = true;
+                    }
+                    EventResult::Consumed
+                }
+                // / or Tab -> enter search
+                Input {
+                    key: Key::Char('/'),
+                    ..
+                }
+                | Input { key: Key::Tab, .. } => {
+                    self.search_focused = true;
+                    EventResult::Consumed
+                }
+                _ => EventResult::Consumed,
+            }
+        }
+    }
+
+    fn handle_paste(&mut self, text: &str, _ctx: &mut PanelContext<'_>) -> EventResult {
+        if self.search_focused {
+            self.search_query.paste(text);
+            self.refresh_filter();
+        }
+        EventResult::Consumed
+    }
+
+    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
+        16
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::thread_browser::render_thread_browser(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        if self.confirm_delete {
+            return vec![
+                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
+                ("Esc", "\u{53d6}\u{6d88}"),
+            ];
+        }
+        if self.search_focused {
+            return vec![
+                ("\u{2193}/Tab", "\u{9000}\u{51fa}\u{641c}\u{7d22}"),
+                ("Esc", "\u{5173}\u{95ed}"),
+            ];
+        }
+        vec![
+            ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+            ("Enter", "\u{6253}\u{5f00}"),
+            ("/", "\u{641c}\u{7d22}"),
+            ("Ctrl+D", "\u{5220}\u{9664}"),
+            ("Esc", "\u{5173}\u{95ed}"),
+        ]
     }
 }

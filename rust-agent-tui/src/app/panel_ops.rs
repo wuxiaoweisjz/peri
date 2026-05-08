@@ -6,30 +6,37 @@ impl App {
     /// 打开 /model 面板
     pub fn open_model_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
-        self.sessions[self.active].core.model_panel = Some(ModelPanel::from_config(cfg));
-        // 互斥：关闭其他面板
-        self.sessions[self.active].core.login_panel = None;
-        self.sessions[self.active].core.config_panel = None;
-        self.status_panel = None;
-        self.memory_panel = None;
+        let panel = ModelPanel::from_config(cfg);
+        self.open_panel(PanelState::Model(panel));
     }
 
     /// 关闭 /model 面板（不保存）
     pub fn close_model_panel(&mut self) {
-        self.sessions[self.active].core.model_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Model);
     }
 
     /// 确认选择并保存（Enter 键）：写入 active_alias + effort，更新状态栏
     pub fn model_panel_confirm(&mut self) {
-        let Some(panel) = self.sessions[self.active].core.model_panel.as_ref() else {
-            return;
-        };
-        let alias_label = panel.active_tab.label().to_string();
-        let effort = panel.buf_thinking_effort.clone();
-        let Some(cfg) = self.zen_config.as_mut() else {
-            return;
-        };
-        panel.apply_to_config(cfg);
+        let alias_label;
+        let effort;
+        {
+            let Some(panel) = self.sessions[self.active]
+                .core
+                .session_panels
+                .get::<ModelPanel>()
+            else {
+                return;
+            };
+            alias_label = panel.active_tab.label().to_string();
+            effort = panel.buf_thinking_effort.clone();
+            let Some(cfg) = self.zen_config.as_mut() else {
+                return;
+            };
+            panel.apply_to_config(cfg);
+        }
         let effort_display = match effort.as_str() {
             "low" => "Low",
             "high" => "High",
@@ -42,41 +49,49 @@ impl App {
                 "模型已切换为: {} ({} effort)",
                 alias_label, effort_display
             )));
-        if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
-            self.sessions[self.active]
-                .core
-                .view_messages
-                .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+        {
+            let cfg = self.zen_config.as_ref().unwrap();
+            if let Err(e) = Self::save_config(cfg, self.config_path_override.as_deref()) {
+                self.sessions[self.active]
+                    .core
+                    .view_messages
+                    .push(MessageViewModel::system(format!("配置保存失败: {}", e)));
+            }
+            if let Some(p) = agent::LlmProvider::from_config(cfg) {
+                self.provider_name = p.display_name().to_string();
+                self.model_name = p.model_name().to_string();
+            }
         }
-        if let Some(p) = agent::LlmProvider::from_config(cfg) {
-            self.provider_name = p.display_name().to_string();
-            self.model_name = p.model_name().to_string();
-        }
-        self.sessions[self.active].core.model_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Model);
     }
 
     // ─── Login 面板操作 ───────────────────────────────────────────────────────
 
-    /// 打开 /login 面板（同时关闭 model 面板，实现互斥）
+    /// 打开 /login 面板
     pub fn open_login_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
-        self.sessions[self.active].core.login_panel =
-            Some(login_panel::LoginPanel::from_config(cfg));
-        // 互斥：关闭其他面板
-        self.sessions[self.active].core.model_panel = None;
-        self.sessions[self.active].core.config_panel = None;
-        self.status_panel = None;
-        self.memory_panel = None;
+        let panel = login_panel::LoginPanel::from_config(cfg);
+        self.open_panel(PanelState::Login(panel));
     }
 
     /// 关闭 /login 面板（不保存）
     pub fn close_login_panel(&mut self) {
-        self.sessions[self.active].core.login_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Login);
     }
 
     /// 选中（激活）光标处的 Provider
     pub fn login_panel_select_provider(&mut self) {
-        let Some(panel) = self.sessions[self.active].core.login_panel.as_mut() else {
+        let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<login_panel::LoginPanel>()
+        else {
             return;
         };
         let selected_name = panel
@@ -112,7 +127,11 @@ impl App {
 
     /// 保存 Login 面板的编辑/新建内容到 ZenConfig，自动激活并关闭面板
     pub fn login_panel_apply_edit(&mut self) {
-        let Some(panel) = self.sessions[self.active].core.login_panel.as_mut() else {
+        let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<login_panel::LoginPanel>()
+        else {
             return;
         };
         let edit_name = panel.buf_name.clone();
@@ -159,7 +178,11 @@ impl App {
 
     /// 确认删除光标处的 Provider
     pub fn login_panel_confirm_delete(&mut self) {
-        let Some(panel) = self.sessions[self.active].core.login_panel.as_mut() else {
+        let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<login_panel::LoginPanel>()
+        else {
             return;
         };
         let Some(cfg) = self.zen_config.as_mut() else {
@@ -197,21 +220,25 @@ impl App {
     /// 打开 /config 面板
     pub fn open_config_panel(&mut self) {
         let cfg = self.zen_config.get_or_insert_with(ZenConfig::default);
-        self.sessions[self.active].core.config_panel =
-            Some(config_panel::ConfigPanel::from_config(cfg));
-        // 互斥：关闭其他面板
-        self.sessions[self.active].core.login_panel = None;
-        self.sessions[self.active].core.model_panel = None;
+        let panel = config_panel::ConfigPanel::from_config(cfg);
+        self.open_panel(PanelState::Config(panel));
     }
 
     /// 关闭 /config 面板
     pub fn close_config_panel(&mut self) {
-        self.sessions[self.active].core.config_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Config);
     }
 
     /// 保存 Config 面板编辑并关闭
     pub fn config_panel_apply(&mut self) {
-        let Some(panel) = self.sessions[self.active].core.config_panel.as_mut() else {
+        let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<config_panel::ConfigPanel>()
+        else {
             return;
         };
         let Some(cfg) = self.zen_config.as_mut() else {
@@ -229,23 +256,23 @@ impl App {
                 .view_messages
                 .push(MessageViewModel::system("配置已保存".to_string()));
         }
-        self.sessions[self.active].core.config_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Config);
     }
 
     // ─── Status 面板操作 ───────────────────────────────────────────────────────
 
     /// 打开状态面板并激活指定 Tab
     pub fn open_status_panel(&mut self, tab: usize) {
-        self.status_panel = Some(status_panel::StatusPanel::new(tab));
-        // 互斥
-        self.sessions[self.active].core.config_panel = None;
-        self.sessions[self.active].core.login_panel = None;
-        self.sessions[self.active].core.model_panel = None;
+        let panel = status_panel::StatusPanel::new(tab);
+        self.open_panel(PanelState::Status(panel));
     }
 
     /// 关闭状态面板
     pub fn close_status_panel(&mut self) {
-        self.status_panel = None;
+        self.global_panels.close_if(PanelKind::Status);
     }
 
     // ─── Memory 面板操作 ───────────────────────────────────────────────────────
@@ -255,17 +282,63 @@ impl App {
         let home_dir = dirs_next::home_dir();
         let mut panel = crate::app::memory_panel::MemoryPanel::new(&self.cwd, home_dir);
         panel.refresh_exists();
-        self.memory_panel = Some(panel);
-        // 互斥
-        self.sessions[self.active].core.config_panel = None;
-        self.sessions[self.active].core.login_panel = None;
-        self.sessions[self.active].core.model_panel = None;
-        self.status_panel = None;
+        self.open_panel(PanelState::Memory(panel));
     }
 
     /// 关闭 /memory 面板
     pub fn close_memory_panel(&mut self) {
-        self.memory_panel = None;
+        self.global_panels.close_if(PanelKind::Memory);
+    }
+
+    /// 打开 MCP 面板
+    pub fn open_mcp_panel(&mut self) {
+        let infos = self
+            .mcp_pool
+            .as_ref()
+            .map(|p| p.all_server_infos())
+            .unwrap_or_default();
+        if infos.is_empty() {
+            let vm = crate::ui::message_view::MessageViewModel::system(
+                "无 MCP 服务器配置（请在 .mcp.json 或 settings.json 中添加）".to_string(),
+            );
+            self.sessions[self.active]
+                .core
+                .view_messages
+                .push(vm.clone());
+            let _ = self.sessions[self.active]
+                .core
+                .render_tx
+                .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+            return;
+        }
+        let panel = McpPanel::new(infos);
+        self.open_panel(PanelState::Mcp(panel));
+    }
+
+    /// 打开 Cron 面板
+    pub fn open_cron_panel(&mut self) {
+        let tasks: Vec<_> = self
+            .cron
+            .scheduler
+            .lock()
+            .list_tasks()
+            .into_iter()
+            .cloned()
+            .collect();
+        if tasks.is_empty() {
+            let vm = crate::ui::message_view::MessageViewModel::system("无定时任务".to_string());
+            self.sessions[self.active]
+                .core
+                .view_messages
+                .push(vm.clone());
+            let _ = self.sessions[self.active]
+                .core
+                .render_tx
+                .send(crate::ui::render_thread::RenderEvent::AddMessage(vm));
+            return;
+        }
+        let panel = CronPanel::new(tasks);
+        self.open_panel(PanelState::Cron(panel));
     }
 
     pub fn open_plugin_panel(&mut self) {
@@ -512,7 +585,7 @@ impl App {
                 // 远程数据 key 格式为 "plugin-name@marketplace-name"，与 plugin_id 一致
                 dp.install_count = counts.get(&dp.plugin_id).copied();
             }
-            // 安装量降序 → 同安装量按字母序
+            // 安装量降序 -> 同安装量按字母序
             discover_plugins.sort_by(|a, b| {
                 let ca = a.install_count.unwrap_or(0);
                 let cb = b.install_count.unwrap_or(0);
@@ -527,14 +600,7 @@ impl App {
         panel.discover_plugins = discover_plugins;
         panel.marketplace_entries = marketplace_view_entries;
 
-        self.plugin_panel = Some(panel);
-        // 互斥：关闭其他面板
-        self.sessions[self.active].core.login_panel = None;
-        self.sessions[self.active].core.model_panel = None;
-        self.sessions[self.active].core.config_panel = None;
-        self.status_panel = None;
-        self.memory_panel = None;
-        self.mcp_panel = None;
+        self.open_panel(PanelState::Plugin(panel));
 
         let _ = cache_base;
         let _ = claude_dir;
@@ -559,7 +625,7 @@ impl App {
     }
 
     pub fn close_plugin_panel(&mut self) {
-        self.plugin_panel = None;
+        self.global_panels.close_if(PanelKind::Plugin);
     }
 
     /// 添加并保存 marketplace
@@ -717,7 +783,7 @@ impl App {
 
         // 刷新面板并恢复到 Marketplaces 视图
         self.open_plugin_panel();
-        if let Some(ref mut p) = self.plugin_panel {
+        if let Some(ref mut p) = self.global_panels.get_mut::<plugin_panel::PluginPanel>() {
             p.view = crate::app::plugin_panel::PluginPanelView::Marketplaces;
             // 确保 cursor 不越界
             let max = p.marketplace_entries.len();
@@ -732,8 +798,8 @@ impl App {
     /// 打开外部编辑器编辑选中的 memory 文件
     pub fn memory_panel_open_editor(&mut self) -> anyhow::Result<()> {
         let entry = self
-            .memory_panel
-            .as_ref()
+            .global_panels
+            .get::<crate::app::memory_panel::MemoryPanel>()
             .and_then(|p| p.entries.get(p.cursor))
             .cloned();
         let Some(entry) = entry else {
@@ -747,7 +813,10 @@ impl App {
             }
             std::fs::File::create(&entry.path)?;
             // 刷新面板中的 exists 状态
-            if let Some(ref mut panel) = self.memory_panel {
+            if let Some(ref mut panel) = self
+                .global_panels
+                .get_mut::<crate::app::memory_panel::MemoryPanel>()
+            {
                 panel.refresh_exists();
             }
         }
@@ -793,20 +862,25 @@ impl App {
 
     /// 打开 /agents 面板（传入扫描到的 agent 列表）
     pub fn open_agent_panel(&mut self, agents: Vec<AgentItem>) {
-        self.sessions[self.active].core.agent_panel = Some(AgentPanel::new(
-            agents,
-            self.sessions[self.active].agent.agent_id.clone(),
-        ));
+        let panel = AgentPanel::new(agents, self.sessions[self.active].agent.agent_id.clone());
+        self.open_panel(PanelState::Agent(panel));
     }
 
     /// 关闭 /agents 面板（不选择任何 agent）
     pub fn close_agent_panel(&mut self) {
-        self.sessions[self.active].core.agent_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Agent);
     }
 
     /// 在 agent 面板中上移光标
     pub fn agent_panel_move_up(&mut self) {
-        if let Some(panel) = self.sessions[self.active].core.agent_panel.as_mut() {
+        if let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<AgentPanel>()
+        {
             panel.move_cursor(-1);
             panel.scroll_offset =
                 ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
@@ -815,7 +889,11 @@ impl App {
 
     /// 在 agent 面板中下移光标
     pub fn agent_panel_move_down(&mut self) {
-        if let Some(panel) = self.sessions[self.active].core.agent_panel.as_mut() {
+        if let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<AgentPanel>()
+        {
             panel.move_cursor(1);
             panel.scroll_offset =
                 ensure_cursor_visible(panel.cursor as u16, panel.scroll_offset, 10);
@@ -826,7 +904,11 @@ impl App {
     pub fn agent_panel_confirm(&mut self) {
         // 先取出 selection，避免同时借用 panel 和 agent_id
         let (is_none, agent_id, agent_name) = {
-            let panel = match self.sessions[self.active].core.agent_panel.as_mut() {
+            let panel = match self.sessions[self.active]
+                .core
+                .session_panels
+                .get_mut::<AgentPanel>()
+            {
                 Some(p) => p,
                 None => return,
             };
@@ -860,13 +942,19 @@ impl App {
                     name, id
                 )));
         }
-        self.sessions[self.active].core.agent_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Agent);
     }
 
     /// 取消选择（不改变当前 agent_id），关闭面板
     #[allow(dead_code)]
     pub fn agent_panel_clear(&mut self) {
-        self.sessions[self.active].core.agent_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Agent);
     }
 
     // ─── Hooks 面板操作 ───────────────────────────────────────────────────────
@@ -882,22 +970,25 @@ impl App {
         let local_hooks =
             rust_agent_middlewares::hooks::loader::load_settings_local_hooks(&self.cwd);
         hooks.extend(local_hooks);
-        self.sessions[self.active].core.hooks_panel = Some(HooksPanel::new(hooks));
-        // 互斥：关闭其他面板
-        self.sessions[self.active].core.login_panel = None;
-        self.sessions[self.active].core.config_panel = None;
-        self.status_panel = None;
-        self.memory_panel = None;
+        let panel = HooksPanel::new(hooks);
+        self.open_panel(PanelState::Hooks(panel));
     }
 
     /// 关闭 /hooks 面板
     pub fn close_hooks_panel(&mut self) {
-        self.sessions[self.active].core.hooks_panel = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::Hooks);
     }
 
     /// 在 hooks 面板中上移光标
     pub fn hooks_panel_move_up(&mut self) {
-        if let Some(panel) = self.sessions[self.active].core.hooks_panel.as_mut() {
+        if let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<HooksPanel>()
+        {
             panel.move_cursor(-1);
             panel.scroll_offset =
                 ensure_cursor_visible(panel.cursor_line(), panel.scroll_offset, 10);
@@ -906,7 +997,11 @@ impl App {
 
     /// 在 hooks 面板中下移光标
     pub fn hooks_panel_move_down(&mut self) {
-        if let Some(panel) = self.sessions[self.active].core.hooks_panel.as_mut() {
+        if let Some(panel) = self.sessions[self.active]
+            .core
+            .session_panels
+            .get_mut::<HooksPanel>()
+        {
             panel.move_cursor(1);
             panel.scroll_offset =
                 ensure_cursor_visible(panel.cursor_line(), panel.scroll_offset, 10);
@@ -1013,12 +1108,9 @@ impl App {
             ))),
             mcp_pool: None,
             mcp_init_rx: None,
-            mcp_panel: None,
+            global_panels: PanelManager::new(),
             mcp_ready_shown_until: std::cell::Cell::new(None),
-            status_panel: None,
-            memory_panel: None,
             plugin_data: None,
-            plugin_panel: None,
             oauth_prompt: None,
             bg_event_tx,
             bg_event_rx: Some(bg_event_rx),

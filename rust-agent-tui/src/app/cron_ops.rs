@@ -1,21 +1,23 @@
+use super::cron_state::CronPanel;
+
 impl crate::app::App {
     /// CronPanel: 光标上移
     pub fn cron_panel_move_up(&mut self) {
-        if let Some(ref mut panel) = self.cron.cron_panel {
+        if let Some(panel) = self.global_panels.get_mut::<CronPanel>() {
             panel.move_cursor(-1);
         }
     }
 
     /// CronPanel: 光标下移
     pub fn cron_panel_move_down(&mut self) {
-        if let Some(ref mut panel) = self.cron.cron_panel {
+        if let Some(panel) = self.global_panels.get_mut::<CronPanel>() {
             panel.move_cursor(1);
         }
     }
 
     /// CronPanel: 切换当前任务的 enabled 状态
     pub fn cron_panel_toggle(&mut self) {
-        if let Some(ref mut panel) = self.cron.cron_panel {
+        if let Some(panel) = self.global_panels.get_mut::<CronPanel>() {
             let idx = panel.cursor;
             if idx < panel.tasks.len() {
                 let id = panel.tasks[idx].id.clone();
@@ -27,7 +29,7 @@ impl crate::app::App {
 
     /// CronPanel: 请求删除当前任务（进入确认状态）
     pub fn cron_panel_request_delete(&mut self) {
-        if let Some(ref mut panel) = self.cron.cron_panel {
+        if let Some(panel) = self.global_panels.get_mut::<CronPanel>() {
             if panel.cursor < panel.tasks.len() {
                 panel.confirm_delete = true;
             }
@@ -36,7 +38,7 @@ impl crate::app::App {
 
     /// CronPanel: 确认删除当前任务
     pub fn cron_panel_confirm_delete(&mut self) {
-        if let Some(ref mut panel) = self.cron.cron_panel {
+        if let Some(panel) = self.global_panels.get_mut::<CronPanel>() {
             panel.confirm_delete = false;
             let idx = panel.cursor;
             if idx < panel.tasks.len() {
@@ -52,7 +54,7 @@ impl crate::app::App {
                 );
                 // 列表为空时关闭面板，清理面板元数据
                 if panel.tasks.is_empty() {
-                    self.cron.cron_panel = None;
+                    self.global_panels.close();
                     self.sessions[self.active].core.panel_selection.clear();
                     self.sessions[self.active].core.panel_area = None;
                 }
@@ -62,13 +64,13 @@ impl crate::app::App {
 
     /// CronPanel: 取消删除确认
     pub fn cron_panel_cancel_delete(&mut self) {
-        if let Some(ref mut panel) = self.cron.cron_panel {
+        if let Some(panel) = self.global_panels.get_mut::<CronPanel>() {
             panel.confirm_delete = false;
         }
     }
 
     /// CronPanel: 关闭面板
     pub fn cron_panel_close(&mut self) {
-        self.cron.cron_panel = None;
+        self.global_panels.close();
     }
 }

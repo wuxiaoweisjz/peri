@@ -1,3 +1,4 @@
+use crate::app::memory_panel::MemoryPanel;
 use crate::app::App;
 use crate::ui::theme;
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
@@ -8,11 +9,7 @@ use ratatui::{
     Frame,
 };
 
-pub(crate) fn render_memory_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(panel) = &app.memory_panel else {
-        return;
-    };
-
+pub(crate) fn render_memory_panel(f: &mut Frame, panel: &MemoryPanel, app: &mut App, area: Rect) {
     let title = " Memory 文件 ";
     let inner = BorderedPanel::new(Span::styled(
         title,

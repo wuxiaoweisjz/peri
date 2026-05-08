@@ -1,6 +1,15 @@
+use std::any::Any;
+
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_textarea::Input;
+
 use rust_agent_middlewares::mcp::{ClientStatus, ConfigSource, Resource, ServerInfo, Tool};
 
+use super::panel_component::PanelComponent;
+use super::panel_manager::{EventResult, PanelContext, PanelKind};
 use super::AgentEvent;
+use super::App;
 
 /// 详情视图中的操作菜单项
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +29,7 @@ pub enum DetailAction {
 }
 
 /// MCP 管理面板
+#[derive(Clone)]
 pub struct McpPanel {
     /// 服务器列表信息
     pub servers: Vec<ServerInfo>,
@@ -34,6 +44,7 @@ pub struct McpPanel {
 }
 
 /// 面板视图层级
+#[derive(Clone)]
 pub enum McpPanelView {
     /// 服务器列表
     ServerList,
@@ -86,7 +97,7 @@ impl McpPanel {
 
 impl crate::app::App {
     pub fn mcp_panel_move_up(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             match &panel.view {
                 McpPanelView::ServerList => {
                     panel.cursor = panel.cursor.saturating_sub(1);
@@ -100,7 +111,7 @@ impl crate::app::App {
     }
 
     pub fn mcp_panel_move_down(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             match &panel.view {
                 McpPanelView::ServerList => {
                     let max = panel.servers.len().saturating_sub(1);
@@ -119,7 +130,7 @@ impl crate::app::App {
     }
 
     pub fn mcp_panel_enter(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             match &panel.view {
                 McpPanelView::ServerList => {
                     if panel.cursor >= panel.servers.len() {
@@ -180,13 +191,13 @@ impl crate::app::App {
 
     /// 执行详情视图选中的操作
     fn mcp_panel_execute_action(&mut self, action: DetailAction) {
-        let server_name = match &self.mcp_panel.as_ref().unwrap().view {
+        let server_name = match &self.global_panels.get::<McpPanel>().unwrap().view {
             McpPanelView::ServerDetail { server_name, .. } => server_name.clone(),
             _ => return,
         };
         match action {
             DetailAction::ViewTools => {
-                if let Some(ref mut panel) = self.mcp_panel {
+                if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
                     if let McpPanelView::ServerDetail {
                         ref mut show_tools, ..
                     } = panel.view
@@ -237,7 +248,7 @@ impl crate::app::App {
 
     /// 将 MCP 面板 cursor 设置到指定服务器
     fn set_mcp_cursor_to_server(&mut self, server_name: &str) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             panel.cursor = panel
                 .servers
                 .iter()
@@ -247,7 +258,7 @@ impl crate::app::App {
     }
 
     pub fn mcp_panel_back(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             if panel.view.is_server_list() {
                 return;
             }
@@ -267,19 +278,19 @@ impl crate::app::App {
     }
 
     pub fn mcp_panel_scroll_up(&mut self, delta: u16) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             panel.scroll_offset = panel.scroll_offset.saturating_sub(delta);
         }
     }
 
     pub fn mcp_panel_scroll_down(&mut self, delta: u16) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             panel.scroll_offset = panel.scroll_offset.saturating_add(delta);
         }
     }
 
     pub fn mcp_panel_request_delete(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             if !panel.view.is_server_list() {
                 return;
             }
@@ -345,7 +356,7 @@ impl crate::app::App {
         }
 
         // 刷新面板列表
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             panel.servers = self
                 .mcp_pool
                 .as_ref()
@@ -358,7 +369,7 @@ impl crate::app::App {
     }
 
     pub fn mcp_panel_confirm_delete(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             let name = match panel.confirm_delete.take() {
                 Some(n) => n,
                 None => return,
@@ -385,19 +396,19 @@ impl crate::app::App {
                 panel.cursor = panel.servers.len() - 1;
             }
             if panel.servers.is_empty() {
-                self.mcp_panel = None;
+                self.global_panels.close();
             }
         }
     }
 
     pub fn mcp_panel_cancel_delete(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             panel.confirm_delete = None;
         }
     }
 
     pub fn mcp_panel_reconnect(&mut self) {
-        if let Some(ref mut panel) = self.mcp_panel {
+        if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
             if !panel.view.is_server_list() {
                 return;
             }
@@ -443,7 +454,7 @@ impl crate::app::App {
 
     /// 手动触发当前选中服务器的 OAuth 授权流程
     pub fn mcp_panel_request_oauth(&mut self) {
-        if let Some(ref panel) = self.mcp_panel {
+        if let Some(ref panel) = self.global_panels.get::<McpPanel>() {
             if !panel.view.is_server_list() {
                 return;
             }
@@ -505,7 +516,498 @@ impl crate::app::App {
     }
 
     pub fn mcp_panel_close(&mut self) {
-        self.mcp_panel = None;
+        self.global_panels.close();
+    }
+}
+
+impl PanelComponent for McpPanel {
+    fn kind(&self) -> PanelKind {
+        PanelKind::Mcp
+    }
+
+    fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        use tui_textarea::Key;
+
+        // confirm_delete mode
+        if self.confirm_delete.is_some() {
+            match input {
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    self.do_confirm_delete(ctx);
+                    // if servers empty after delete, close
+                    if self.servers.is_empty() {
+                        EventResult::ClosePanel
+                    } else {
+                        EventResult::Consumed
+                    }
+                }
+                _ => {
+                    self.confirm_delete = None;
+                    EventResult::Consumed
+                }
+            }
+        } else {
+            let is_server_list = self.view.is_server_list();
+            match input {
+                Input { key: Key::Up, .. } => {
+                    self.do_move_up();
+                    EventResult::Consumed
+                }
+                Input { key: Key::Down, .. } => {
+                    self.do_move_down();
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Enter, ..
+                } => {
+                    self.do_enter(ctx);
+                    EventResult::Consumed
+                }
+                Input { key: Key::Esc, .. } => {
+                    if is_server_list {
+                        EventResult::ClosePanel
+                    } else {
+                        self.do_back();
+                        EventResult::Consumed
+                    }
+                }
+                Input {
+                    key: Key::Char('r'),
+                    ctrl: true,
+                    ..
+                } if is_server_list => {
+                    self.do_reconnect(ctx);
+                    EventResult::Consumed
+                }
+                Input {
+                    key: Key::Char('d'),
+                    ctrl: true,
+                    ..
+                } if is_server_list => {
+                    self.do_request_delete();
+                    EventResult::Consumed
+                }
+                _ => EventResult::Consumed,
+            }
+        }
+    }
+
+    fn handle_scroll(&mut self, lines: i16, _ctx: &mut PanelContext<'_>) -> EventResult {
+        if lines > 0 {
+            self.scroll_offset = self.scroll_offset.saturating_add(lines as u16);
+        } else {
+            self.scroll_offset = self.scroll_offset.saturating_sub((-lines) as u16);
+        }
+        EventResult::Consumed
+    }
+
+    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
+        match &self.view {
+            McpPanelView::ServerList => 16,
+            McpPanelView::ServerDetail { .. } => 20,
+        }
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::mcp::render_mcp_panel(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        if self.confirm_delete.is_some() {
+            return vec![
+                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
+                ("Esc", "\u{53d6}\u{6d88}"),
+            ];
+        }
+        if self.view.is_server_list() {
+            vec![
+                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+                ("Enter", "\u{8be6}\u{60c5}"),
+                ("Ctrl+R", "\u{91cd}\u{8fde}"),
+                ("Ctrl+D", "\u{5220}\u{9664}"),
+                ("Esc", "\u{5173}\u{95ed}"),
+            ]
+        } else {
+            vec![
+                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+                ("Enter", "\u{6267}\u{884c}"),
+                ("Esc", "\u{8fd4}\u{56de}"),
+            ]
+        }
+    }
+}
+
+impl McpPanel {
+    fn do_move_up(&mut self) {
+        match &self.view {
+            McpPanelView::ServerList => {
+                self.cursor = self.cursor.saturating_sub(1);
+            }
+            McpPanelView::ServerDetail { .. } => {
+                let max = self.view.action_count().saturating_sub(1);
+                self.cursor = self.cursor.saturating_sub(1).min(max);
+            }
+        }
+    }
+
+    fn do_move_down(&mut self) {
+        match &self.view {
+            McpPanelView::ServerList => {
+                let max = self.servers.len().saturating_sub(1);
+                if self.cursor < max {
+                    self.cursor += 1;
+                }
+            }
+            McpPanelView::ServerDetail { .. } => {
+                let max = self.view.action_count().saturating_sub(1);
+                if self.cursor < max {
+                    self.cursor += 1;
+                }
+            }
+        }
+    }
+
+    fn do_enter(&mut self, ctx: &mut PanelContext<'_>) {
+        match &self.view {
+            McpPanelView::ServerList => {
+                if self.cursor >= self.servers.len() {
+                    return;
+                }
+                let name = self.servers[self.cursor].name.clone();
+                let server = &self.servers[self.cursor];
+                let tools = ctx
+                    .mcp_pool
+                    .as_ref()
+                    .map(|p| p.get_tools(&name))
+                    .unwrap_or_default();
+                let resources = ctx
+                    .mcp_pool
+                    .as_ref()
+                    .map(|p| p.get_resources(&name))
+                    .unwrap_or_default();
+
+                // Build actions menu
+                let mut actions = vec![DetailAction::ViewTools];
+                if server.transport_type == "http" {
+                    actions.push(DetailAction::ReAuthenticate);
+                    actions.push(DetailAction::ClearAuth);
+                }
+                if server.status == ClientStatus::Uninitialized {
+                    actions = vec![DetailAction::Reconnect];
+                } else {
+                    actions.push(DetailAction::Reconnect);
+                    if matches!(server.status, ClientStatus::Disabled) {
+                        actions.push(DetailAction::Enable);
+                    } else {
+                        actions.push(DetailAction::Disable);
+                    }
+                }
+
+                self.view = McpPanelView::ServerDetail {
+                    server_name: name,
+                    tools,
+                    resources,
+                    actions,
+                    show_tools: false,
+                };
+                self.cursor = 0;
+                self.scroll_offset = 0;
+            }
+            McpPanelView::ServerDetail { actions, .. } => {
+                if self.cursor >= actions.len() {
+                    return;
+                }
+                let action = actions[self.cursor].clone();
+                self.do_execute_action(ctx, action);
+            }
+        }
+    }
+
+    fn do_back(&mut self) {
+        if self.view.is_server_list() {
+            return;
+        }
+        let name = match &self.view {
+            McpPanelView::ServerDetail { server_name, .. } => server_name.clone(),
+            _ => String::new(),
+        };
+        self.view = McpPanelView::ServerList;
+        self.cursor = self
+            .servers
+            .iter()
+            .position(|s| s.name == name)
+            .unwrap_or(0);
+        self.scroll_offset = 0;
+    }
+
+    fn do_request_delete(&mut self) {
+        if !self.view.is_server_list() {
+            return;
+        }
+        if self.cursor >= self.servers.len() {
+            return;
+        }
+        self.confirm_delete = Some(self.servers[self.cursor].name.clone());
+    }
+
+    fn do_confirm_delete(&mut self, ctx: &mut PanelContext<'_>) {
+        let name = match self.confirm_delete.take() {
+            Some(n) => n,
+            None => return,
+        };
+        // Async disconnect
+        if let Some(pool) = ctx.mcp_pool.clone() {
+            let name_clone = name.clone();
+            tokio::spawn(async move {
+                pool.remove_server(&name_clone).await;
+            });
+        }
+        // Persist delete
+        let _ = rust_agent_middlewares::mcp::remove_server_from_config(
+            std::path::Path::new(&ctx.cwd),
+            &name,
+        );
+        // Refresh list
+        self.servers = ctx
+            .mcp_pool
+            .as_ref()
+            .map(|p| p.all_server_infos())
+            .unwrap_or_default();
+        if self.cursor >= self.servers.len() && !self.servers.is_empty() {
+            self.cursor = self.servers.len() - 1;
+        }
+    }
+
+    fn do_reconnect(&mut self, ctx: &mut PanelContext<'_>) {
+        if !self.view.is_server_list() {
+            return;
+        }
+        if self.cursor >= self.servers.len() {
+            return;
+        }
+        let name = self.servers[self.cursor].name.clone();
+        if let Some(pool) = ctx.mcp_pool.clone() {
+            let tx = ctx.bg_event_tx.clone();
+            let pool2 = pool.clone();
+            let name2 = name.clone();
+            let tx2 = tx.clone();
+            let oauth_cb: Box<dyn Fn(rust_agent_middlewares::mcp::OAuthFlowEvent) + Send + Sync> =
+                Box::new(move |ev| {
+                    use rust_agent_middlewares::mcp::OAuthFlowEvent;
+                    if let OAuthFlowEvent::AuthorizationNeeded {
+                        server_name,
+                        authorization_url,
+                        callback_tx,
+                    } = ev
+                    {
+                        let _ = tx2.try_send(AgentEvent::OAuthAuthorizationNeeded {
+                            server_name,
+                            authorization_url,
+                            callback_tx,
+                        });
+                    }
+                });
+            tokio::spawn(async move {
+                let result = pool2.reconnect(&name2, Some(oauth_cb)).await;
+                let _ = tx
+                    .send(AgentEvent::McpActionCompleted {
+                        server_name: name2,
+                        action: "reconnect".to_string(),
+                        success: result.is_ok(),
+                    })
+                    .await;
+            });
+        }
+    }
+
+    fn do_execute_action(&mut self, ctx: &mut PanelContext<'_>, action: DetailAction) {
+        let server_name = match &self.view {
+            McpPanelView::ServerDetail { server_name, .. } => server_name.clone(),
+            _ => return,
+        };
+        match action {
+            DetailAction::ViewTools => {
+                if let McpPanelView::ServerDetail {
+                    ref mut show_tools, ..
+                } = self.view
+                {
+                    *show_tools = !*show_tools;
+                }
+            }
+            DetailAction::ReAuthenticate => {
+                self.do_back();
+                self.set_cursor_to_server(&server_name);
+                self.do_request_oauth(ctx);
+            }
+            DetailAction::ClearAuth => {
+                self.do_back();
+                self.set_cursor_to_server(&server_name);
+                let pool = ctx.mcp_pool.clone();
+                let tx = ctx.bg_event_tx.clone();
+                let name_clone = server_name.clone();
+                if let Some(pool) = pool {
+                    tokio::spawn(async move {
+                        let result = pool.clear_oauth(&name_clone).await;
+                        let _ = tx.try_send(AgentEvent::McpActionCompleted {
+                            server_name: name_clone,
+                            action: "clear_auth".to_string(),
+                            success: result.is_ok(),
+                        });
+                    });
+                }
+            }
+            DetailAction::Reconnect => {
+                self.do_back();
+                self.set_cursor_to_server(&server_name);
+                self.do_reconnect(ctx);
+            }
+            DetailAction::Disable => {
+                self.do_back();
+                self.set_cursor_to_server(&server_name);
+                Self::toggle_disabled(ctx, &server_name, true);
+                // Refresh
+                self.servers = ctx
+                    .mcp_pool
+                    .as_ref()
+                    .map(|p| p.all_server_infos())
+                    .unwrap_or_default();
+                if self.cursor >= self.servers.len() && !self.servers.is_empty() {
+                    self.cursor = self.servers.len() - 1;
+                }
+            }
+            DetailAction::Enable => {
+                self.do_back();
+                self.set_cursor_to_server(&server_name);
+                Self::toggle_disabled(ctx, &server_name, false);
+                // Refresh
+                self.servers = ctx
+                    .mcp_pool
+                    .as_ref()
+                    .map(|p| p.all_server_infos())
+                    .unwrap_or_default();
+                if self.cursor >= self.servers.len() && !self.servers.is_empty() {
+                    self.cursor = self.servers.len() - 1;
+                }
+            }
+        }
+    }
+
+    fn set_cursor_to_server(&mut self, server_name: &str) {
+        self.cursor = self
+            .servers
+            .iter()
+            .position(|s| s.name == server_name)
+            .unwrap_or(0);
+    }
+
+    fn do_request_oauth(&mut self, ctx: &mut PanelContext<'_>) {
+        if !self.view.is_server_list() {
+            return;
+        }
+        if self.cursor >= self.servers.len() {
+            return;
+        }
+        let server = &self.servers[self.cursor];
+        if server.transport_type != "http" {
+            return;
+        }
+        let name = server.name.clone();
+        if let Some(pool) = ctx.mcp_pool.clone() {
+            let tx = ctx.bg_event_tx.clone();
+            let ok_tx = ctx.bg_event_tx.clone();
+            let err_tx = ctx.bg_event_tx.clone();
+            tokio::spawn(async move {
+                let result = pool
+                    .start_oauth_flow(
+                        &name,
+                        Box::new(move |ev| {
+                            use rust_agent_middlewares::mcp::OAuthFlowEvent;
+                            if let OAuthFlowEvent::AuthorizationNeeded {
+                                server_name,
+                                authorization_url,
+                                callback_tx,
+                            } = ev
+                            {
+                                let _ = tx.try_send(AgentEvent::OAuthAuthorizationNeeded {
+                                    server_name,
+                                    authorization_url,
+                                    callback_tx,
+                                });
+                            }
+                        }),
+                    )
+                    .await;
+                if let Err(e) = result {
+                    let _ = err_tx.try_send(AgentEvent::OAuthAuthorizationFailed {
+                        server_name: name,
+                        error: e.to_string(),
+                    });
+                } else {
+                    let _ = ok_tx
+                        .try_send(AgentEvent::OAuthAuthorizationCompleted { server_name: name });
+                }
+            });
+        }
+    }
+
+    fn toggle_disabled(ctx: &mut PanelContext<'_>, server_name: &str, disabled: bool) {
+        let _ = rust_agent_middlewares::mcp::set_server_disabled(
+            std::path::Path::new(&ctx.cwd),
+            server_name,
+            disabled,
+        );
+
+        if disabled {
+            if let Some(pool) = ctx.mcp_pool.clone() {
+                let name_clone = server_name.to_string();
+                tokio::spawn(async move {
+                    pool.set_disabled(&name_clone).await;
+                });
+            }
+        } else {
+            if let Some(pool) = ctx.mcp_pool.clone() {
+                let tx = ctx.bg_event_tx.clone();
+                let pool2 = pool.clone();
+                let name2 = server_name.to_string();
+                let tx2 = tx.clone();
+                let oauth_cb: Box<
+                    dyn Fn(rust_agent_middlewares::mcp::OAuthFlowEvent) + Send + Sync,
+                > = Box::new(move |ev| {
+                    use rust_agent_middlewares::mcp::OAuthFlowEvent;
+                    if let OAuthFlowEvent::AuthorizationNeeded {
+                        server_name,
+                        authorization_url,
+                        callback_tx,
+                    } = ev
+                    {
+                        let _ = tx2.try_send(AgentEvent::OAuthAuthorizationNeeded {
+                            server_name,
+                            authorization_url,
+                            callback_tx,
+                        });
+                    }
+                });
+                tokio::spawn(async move {
+                    let result = pool2.reconnect(&name2, Some(oauth_cb)).await;
+                    let _ = tx
+                        .send(AgentEvent::McpActionCompleted {
+                            server_name: name2,
+                            action: "reconnect".to_string(),
+                            success: result.is_ok(),
+                        })
+                        .await;
+                });
+            }
+        }
     }
 }
 
@@ -552,44 +1054,56 @@ mod tests {
             make_server_info("b", ClientStatus::Connected),
             make_server_info("c", ClientStatus::Connected),
         ];
-        app.mcp_panel = Some(McpPanel::new(servers));
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(McpPanel::new(
+                servers,
+            )));
 
         for _ in 0..5 {
             app.mcp_panel_move_up();
         }
-        assert_eq!(app.mcp_panel.as_ref().unwrap().cursor, 0);
+        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor, 0);
 
         for _ in 0..5 {
             app.mcp_panel_move_down();
         }
-        assert_eq!(app.mcp_panel.as_ref().unwrap().cursor, 2);
+        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor, 2);
     }
 
     #[tokio::test]
     async fn test_mcp_panel_close() {
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.mcp_panel = Some(McpPanel::new(vec![]));
-        assert!(app.mcp_panel.is_some());
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(McpPanel::new(
+                vec![],
+            )));
+        assert!(app.global_panels.is_active(crate::app::PanelKind::Mcp));
         app.mcp_panel_close();
-        assert!(app.mcp_panel.is_none());
+        assert!(!app.global_panels.is_active(crate::app::PanelKind::Mcp));
     }
 
     #[tokio::test]
     async fn test_mcp_panel_request_cancel_delete() {
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.mcp_panel = Some(McpPanel::new(vec![make_server_info(
-            "test-srv",
-            ClientStatus::Connected,
-        )]));
+        let servers = vec![make_server_info("test-srv", ClientStatus::Connected)];
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(McpPanel::new(
+                servers,
+            )));
 
         app.mcp_panel_request_delete();
         assert_eq!(
-            app.mcp_panel.as_ref().unwrap().confirm_delete,
+            app.global_panels.get::<McpPanel>().unwrap().confirm_delete,
             Some("test-srv".to_string())
         );
 
         app.mcp_panel_cancel_delete();
-        assert!(app.mcp_panel.as_ref().unwrap().confirm_delete.is_none());
+        assert!(app
+            .global_panels
+            .get::<McpPanel>()
+            .unwrap()
+            .confirm_delete
+            .is_none());
     }
 
     #[tokio::test]
@@ -597,10 +1111,13 @@ mod tests {
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
         let mut srv = make_server_info("http-srv", ClientStatus::Connected);
         srv.transport_type = "http".to_string();
-        app.mcp_panel = Some(McpPanel::new(vec![srv]));
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(McpPanel::new(
+                vec![srv],
+            )));
 
         app.mcp_panel_enter();
-        match &app.mcp_panel.as_ref().unwrap().view {
+        match &app.global_panels.get::<McpPanel>().unwrap().view {
             McpPanelView::ServerDetail { actions, .. } => {
                 assert!(actions.contains(&DetailAction::ReAuthenticate));
                 assert!(actions.contains(&DetailAction::ClearAuth));
@@ -614,13 +1131,17 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_panel_back_restores_cursor() {
         let (mut app, _handle) = crate::app::App::new_headless(80, 24).await;
-        app.mcp_panel = Some(McpPanel::new(vec![
+        let servers = vec![
             make_server_info("a", ClientStatus::Connected),
             make_server_info("b", ClientStatus::Connected),
-        ]));
-        app.mcp_panel.as_mut().unwrap().cursor = 1;
+        ];
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(McpPanel::new(
+                servers,
+            )));
+        app.global_panels.get_mut::<McpPanel>().unwrap().cursor = 1;
         app.mcp_panel_enter();
         app.mcp_panel_back();
-        assert_eq!(app.mcp_panel.as_ref().unwrap().cursor, 1);
+        assert_eq!(app.global_panels.get::<McpPanel>().unwrap().cursor, 1);
     }
 }

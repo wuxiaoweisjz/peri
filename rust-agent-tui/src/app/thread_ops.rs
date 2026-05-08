@@ -111,7 +111,10 @@ impl App {
             .restore_completed(base_msgs.clone());
 
         self.sessions[self.active].current_thread_id = Some(thread_id);
-        self.sessions[self.active].core.thread_browser = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::ThreadBrowser);
         self.sessions[self.active].core.pending_attachments.clear();
         self.sessions[self.active].langfuse.langfuse_session = None;
         self.sessions[self.active].todo_items.clear();
@@ -187,7 +190,10 @@ impl App {
         self.sessions[self.active].current_thread_id = None;
         self.sessions[self.active].todo_items.clear();
         self.sessions[self.active].core.pending_attachments.clear();
-        self.sessions[self.active].core.thread_browser = None;
+        self.sessions[self.active]
+            .core
+            .session_panels
+            .close_if(PanelKind::ThreadBrowser);
         self.sessions[self.active].langfuse.langfuse_session = None;
         self.sessions[self.active].core.last_human_message = None;
         self.sessions[self.active].core.last_submitted_text = None;
@@ -346,11 +352,8 @@ impl App {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .filter(|s| !s.is_empty());
 
-        self.sessions[self.active].core.thread_browser = Some(ThreadBrowser::new(
-            filtered,
-            self.thread_store.clone(),
-            branch,
-        ));
+        let browser = ThreadBrowser::new(filtered, self.thread_store.clone(), branch);
+        self.open_panel(PanelState::ThreadBrowser(browser));
     }
 }
 

@@ -1,4 +1,15 @@
+use std::any::Any;
+
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_textarea::Input;
+
 use crate::config::{ProviderConfig, ProviderModels, ZenConfig};
+use crate::ui::message_view::MessageViewModel;
+
+use super::panel_component::PanelComponent;
+use super::panel_manager::{EventResult, PanelContext, PanelKind};
+use super::App;
 
 // ─── 默认模型名常量表 ─────────────────────────────────────────────────────────
 
@@ -77,6 +88,7 @@ impl LoginEditField {
 
 // ─── LoginPanel ─────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct LoginPanel {
     /// provider 列表快照（从 ZenConfig 获取）
     pub providers: Vec<ProviderConfig>,
@@ -379,6 +391,323 @@ impl LoginPanel {
             }
         }
         self.mode = LoginPanelMode::Browse;
+    }
+}
+
+impl PanelComponent for LoginPanel {
+    fn kind(&self) -> PanelKind {
+        PanelKind::Login
+    }
+
+    fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        use tui_textarea::Key;
+        match &self.mode {
+            LoginPanelMode::Browse => {
+                match input {
+                    Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+                    Input { key: Key::Up, .. } => {
+                        self.move_cursor(-1);
+                        EventResult::Consumed
+                    }
+                    Input { key: Key::Down, .. } => {
+                        self.move_cursor(1);
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Enter, ..
+                    } => {
+                        // select_provider + close
+                        let selected_name = self
+                            .providers
+                            .get(self.cursor)
+                            .map(|p| p.display_name().to_string())
+                            .unwrap_or_default();
+                        let Some(cfg) = ctx.zen_config.as_mut() else {
+                            return EventResult::Consumed;
+                        };
+                        self.select_provider(cfg);
+                        if !selected_name.is_empty() {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(format!(
+                                    "已激活 Provider: {}",
+                                    selected_name
+                                )),
+                            );
+                        }
+                        // Save config and update provider name
+                        if let Err(e) =
+                            super::App::save_config(cfg, ctx.config_path_override.as_deref())
+                        {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(format!(
+                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
+                                    e
+                                )),
+                            );
+                        }
+                        if let Some(p) = super::agent::LlmProvider::from_config(cfg) {
+                            *ctx.provider_name = p.display_name().to_string();
+                            *ctx.model_name = p.model_name().to_string();
+                        }
+                        EventResult::ClosePanel
+                    }
+                    Input {
+                        key: Key::Tab,
+                        shift: false,
+                        ..
+                    } => {
+                        self.enter_edit();
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Char('n'),
+                        ctrl: true,
+                        ..
+                    } => {
+                        self.enter_new();
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Char('d'),
+                        ctrl: true,
+                        ..
+                    } => {
+                        self.request_delete();
+                        EventResult::Consumed
+                    }
+                    _ => EventResult::Consumed,
+                }
+            }
+            LoginPanelMode::Edit | LoginPanelMode::New => {
+                let is_type_field = self.edit_field == LoginEditField::Type;
+                match input {
+                    Input { key: Key::Esc, .. } => {
+                        self.mode = LoginPanelMode::Browse;
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Char('v'),
+                        ctrl: true,
+                        ..
+                    } => {
+                        // Ctrl+V: paste from clipboard
+                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                            if let Ok(text) = clipboard.get_text() {
+                                self.paste_text(&text);
+                            }
+                        }
+                        EventResult::Consumed
+                    }
+                    Input { key: Key::Up, .. } => {
+                        self.field_prev();
+                        EventResult::Consumed
+                    }
+                    Input { key: Key::Down, .. } => {
+                        self.field_next();
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Tab,
+                        shift: false,
+                        ..
+                    } => {
+                        self.field_next();
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Tab,
+                        shift: true,
+                        ..
+                    } => {
+                        self.field_prev();
+                        EventResult::Consumed
+                    }
+                    Input { key: Key::Left, .. }
+                    | Input {
+                        key: Key::Right, ..
+                    } if is_type_field => {
+                        self.cycle_type();
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Char(' '),
+                        ..
+                    } => {
+                        if is_type_field {
+                            self.cycle_type();
+                        } else if let Some((buf, cursor)) = self.active_field() {
+                            super::handle_edit_key(
+                                buf,
+                                cursor,
+                                Input {
+                                    key: Key::Char(' '),
+                                    ctrl: false,
+                                    alt: false,
+                                    shift: false,
+                                },
+                            );
+                        }
+                        EventResult::Consumed
+                    }
+                    Input {
+                        key: Key::Enter, ..
+                    } => {
+                        // apply_edit + auto-activate + close
+                        let edit_name = self.buf_name.clone();
+                        let is_new = self.mode == LoginPanelMode::New;
+                        let Some(cfg) = ctx.zen_config.as_mut() else {
+                            return EventResult::Consumed;
+                        };
+                        if !self.apply_edit(cfg) {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(
+                                    "保存失败：Provider 名称不能为空".to_string(),
+                                ),
+                            );
+                            return EventResult::Consumed;
+                        }
+                        let display = if edit_name.is_empty() {
+                            "Provider".to_string()
+                        } else {
+                            edit_name
+                        };
+                        // auto-activate saved provider
+                        self.select_provider(cfg);
+                        ctx.sessions[ctx.active]
+                            .core
+                            .view_messages
+                            .push(MessageViewModel::system(format!(
+                                "已{}并激活 Provider: {}",
+                                if is_new { "新建" } else { "保存" },
+                                display
+                            )));
+                        // Save config and update provider name
+                        if let Err(e) =
+                            super::App::save_config(cfg, ctx.config_path_override.as_deref())
+                        {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(format!(
+                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
+                                    e
+                                )),
+                            );
+                        }
+                        if let Some(p) = super::agent::LlmProvider::from_config(cfg) {
+                            *ctx.provider_name = p.display_name().to_string();
+                            *ctx.model_name = p.model_name().to_string();
+                        }
+                        EventResult::ClosePanel
+                    }
+                    _ => {
+                        if !is_type_field {
+                            if let Some((buf, cursor)) = self.active_field() {
+                                super::handle_edit_key(buf, cursor, input);
+                            }
+                        }
+                        EventResult::Consumed
+                    }
+                }
+            }
+            LoginPanelMode::ConfirmDelete => {
+                match input {
+                    Input {
+                        key: Key::Enter, ..
+                    } => {
+                        // confirm_delete (stay open, don't close)
+                        let Some(cfg) = ctx.zen_config.as_mut() else {
+                            return EventResult::Consumed;
+                        };
+                        let deleted_name = self
+                            .providers
+                            .get(self.cursor)
+                            .map(|p| p.display_name().to_string())
+                            .unwrap_or_default();
+                        self.confirm_delete(cfg);
+                        if !deleted_name.is_empty() {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(format!(
+                                    "已删除 Provider: {}",
+                                    deleted_name
+                                )),
+                            );
+                        }
+                        // Save config and update provider name
+                        if let Err(e) =
+                            super::App::save_config(cfg, ctx.config_path_override.as_deref())
+                        {
+                            ctx.sessions[ctx.active].core.view_messages.push(
+                                MessageViewModel::system(format!(
+                                    "\u{914d}\u{7f6e}\u{4fdd}\u{5b58}\u{5931}\u{8d25}: {}",
+                                    e
+                                )),
+                            );
+                        }
+                        if let Some(p) = super::agent::LlmProvider::from_config(cfg) {
+                            *ctx.provider_name = p.display_name().to_string();
+                            *ctx.model_name = p.model_name().to_string();
+                        }
+                        EventResult::Consumed
+                    }
+                    Input { key: Key::Esc, .. } => {
+                        self.cancel_delete();
+                        EventResult::Consumed
+                    }
+                    _ => {
+                        self.cancel_delete();
+                        EventResult::Consumed
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_paste(&mut self, text: &str, _ctx: &mut PanelContext<'_>) -> EventResult {
+        self.paste_text(text);
+        EventResult::Consumed
+    }
+
+    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
+        match self.mode {
+            LoginPanelMode::Browse => 14,
+            LoginPanelMode::Edit | LoginPanelMode::New => 20,
+            LoginPanelMode::ConfirmDelete => 14,
+        }
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::login::render_login_panel(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        match self.mode {
+            LoginPanelMode::Browse => vec![
+                ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+                ("Enter", "\u{6fc0}\u{6d3b}"),
+                ("Tab", "\u{7f16}\u{8f91}"),
+                ("Ctrl+N", "\u{65b0}\u{5efa}"),
+                ("Ctrl+D", "\u{5220}\u{9664}"),
+                ("Esc", "\u{5173}\u{95ed}"),
+            ],
+            LoginPanelMode::Edit | LoginPanelMode::New => vec![
+                ("\u{2191}\u{2193}", "\u{5b57}\u{6bb5}"),
+                ("Enter", "\u{4fdd}\u{5b58}"),
+                ("Ctrl+V", "\u{7c98}\u{8d34}"),
+                ("Space", "\u{5207}\u{6362}"),
+                ("Esc", "\u{8fd4}\u{56de}"),
+            ],
+            LoginPanelMode::ConfirmDelete => vec![
+                ("Enter", "\u{786e}\u{8ba4}\u{5220}\u{9664}"),
+                ("Esc", "\u{53d6}\u{6d88}"),
+            ],
+        }
     }
 }
 

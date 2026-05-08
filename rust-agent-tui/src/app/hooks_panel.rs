@@ -1,4 +1,15 @@
+use std::any::Any;
+
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_textarea::Input;
+
 use rust_agent_middlewares::hooks::types::{HookEvent, HookType, RegisteredHook};
+
+use super::ensure_cursor_visible;
+use super::panel_component::PanelComponent;
+use super::panel_manager::{EventResult, PanelContext, PanelKind};
+use super::App;
 
 /// Hook 事件描述信息
 struct HookEventInfo {
@@ -280,6 +291,62 @@ pub fn hook_type_summary(hook: &HookType) -> String {
                 p
             }
         }
+    }
+}
+
+// ─── PanelComponent 实现 ──────────────────────────────────────────────────────
+
+impl PanelComponent for HooksPanel {
+    fn kind(&self) -> PanelKind {
+        PanelKind::Hooks
+    }
+
+    fn handle_key(&mut self, input: Input, _ctx: &mut PanelContext<'_>) -> EventResult {
+        use tui_textarea::Key;
+        match input {
+            Input {
+                key: Key::Char('c'),
+                ctrl: true,
+                ..
+            } => EventResult::NotConsumed,
+            Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+            Input { key: Key::Up, .. } => {
+                self.move_cursor(-1);
+                self.scroll_offset =
+                    ensure_cursor_visible(self.cursor_line(), self.scroll_offset, 10);
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                self.move_cursor(1);
+                self.scroll_offset =
+                    ensure_cursor_visible(self.cursor_line(), self.scroll_offset, 10);
+                EventResult::Consumed
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
+        self.total_content_lines().max(8)
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::hooks::render_hooks_panel(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
+            ("Esc", "\u{5173}\u{95ed}"),
+        ]
     }
 }
 

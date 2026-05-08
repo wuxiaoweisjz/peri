@@ -1,4 +1,15 @@
+use std::any::Any;
+
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_textarea::Input;
+
 use crate::command::agents::AgentItem;
+
+use super::ensure_cursor_visible;
+use super::panel_component::PanelComponent;
+use super::panel_manager::{EventResult, PanelContext, PanelKind};
+use super::App;
 
 // ─── AgentPanel ────────────────────────────────────────────────────────────────
 
@@ -64,5 +75,98 @@ impl AgentPanel {
         } else {
             self.agents.get(self.cursor - 1)
         }
+    }
+}
+
+// ─── PanelComponent 实现 ──────────────────────────────────────────────────────
+
+impl PanelComponent for AgentPanel {
+    fn kind(&self) -> PanelKind {
+        PanelKind::Agent
+    }
+
+    fn handle_key(&mut self, input: Input, ctx: &mut PanelContext<'_>) -> EventResult {
+        use tui_textarea::Key;
+        match input {
+            Input {
+                key: Key::Char('c'),
+                ctrl: true,
+                ..
+            } => EventResult::NotConsumed,
+            Input { key: Key::Esc, .. } => EventResult::ClosePanel,
+            Input { key: Key::Up, .. } => {
+                self.move_cursor(-1);
+                self.scroll_offset =
+                    ensure_cursor_visible(self.cursor as u16, self.scroll_offset, 10);
+                EventResult::Consumed
+            }
+            Input { key: Key::Down, .. } => {
+                self.move_cursor(1);
+                self.scroll_offset =
+                    ensure_cursor_visible(self.cursor as u16, self.scroll_offset, 10);
+                EventResult::Consumed
+            }
+            Input {
+                key: Key::Enter, ..
+            } => {
+                // Enter 确认选择当前 agent（或取消选择）
+                let (is_none, agent_id, agent_name) = {
+                    let (is_none, agent_id) = self.get_selection();
+                    let agent_name = if is_none {
+                        None
+                    } else {
+                        agent_id
+                            .as_ref()
+                            .and_then(|_id| self.current_agent().map(|a| a.name.clone()))
+                    };
+                    (is_none, agent_id, agent_name)
+                };
+
+                if is_none {
+                    ctx.sessions[ctx.active].agent.agent_id = None;
+                    ctx.sessions[ctx.active]
+                        .core
+                        .view_messages
+                        .push(crate::app::MessageViewModel::system(
+                            "Agent \u{5df2}\u{91cd}\u{7f6e}\u{ff08}\u{672a}\u{8bbe}\u{7f6e} agent_id\u{ff09}".to_string(),
+                        ));
+                } else if let Some(id) = agent_id {
+                    ctx.sessions[ctx.active].agent.agent_id = Some(id.clone());
+                    let name = agent_name.unwrap_or_else(|| id.clone());
+                    ctx.sessions[ctx.active].core.view_messages.push(
+                        crate::app::MessageViewModel::system(format!(
+                            "Agent \u{5df2}\u{5207}\u{6362}\u{4e3a}: {} ({})",
+                            name, id
+                        )),
+                    );
+                }
+                EventResult::ClosePanel
+            }
+            _ => EventResult::Consumed,
+        }
+    }
+
+    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
+        (self.agents.len() as u16 * 2 + 6).max(6)
+    }
+
+    fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
+        crate::ui::main_ui::panels::agent::render_agent_panel(f, self, app, area);
+    }
+
+    fn as_any_ref(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn status_bar_hints(&self) -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("\u{2191}\u{2193}", "\u{9009}\u{62e9}"),
+            ("Enter", "\u{786e}\u{8ba4}"),
+            ("Esc", "\u{53d6}\u{6d88}"),
+        ]
     }
 }

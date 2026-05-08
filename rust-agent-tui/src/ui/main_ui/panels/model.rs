@@ -8,15 +8,11 @@ use ratatui::{
 
 use perihelion_widgets::BorderedPanel;
 
-use crate::app::model_panel::{AliasTab, ROW_HAIKU, ROW_OPUS, ROW_SONNET};
+use crate::app::model_panel::{AliasTab, ModelPanel, ROW_HAIKU, ROW_OPUS, ROW_SONNET};
 use crate::app::App;
 use crate::ui::theme;
 
-pub(crate) fn render_model_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.sessions[app.active].core.model_panel else {
-        return;
-    };
-
+pub(crate) fn render_model_panel(f: &mut Frame, panel: &ModelPanel, app: &App, area: Rect) {
     let inner = BorderedPanel::new(Span::styled(
         " Select model ",
         Style::default()
@@ -139,12 +135,16 @@ mod tests {
 
     async fn render_headless_model_no_provider() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.sessions[app.active].core.model_panel = Some(ModelPanel {
+        let panel = ModelPanel {
             provider_name: String::new(),
             cursor: ROW_OPUS,
             active_tab: AliasTab::Opus,
             buf_thinking_effort: "medium".to_string(),
-        });
+        };
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Model(panel.clone()));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))

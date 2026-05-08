@@ -21,6 +21,8 @@ const SELECTED: Color = Color::Rgb(178, 185, 249);
 /// 搜索框 + 空行占用的固定高度
 const SEARCH_OVERHEAD: u16 = 4; // 3 行搜索框 + 1 行空行
 
+// Keep ThreadBrowser import for render function signature
+
 fn truncate_display(s: &str, max_width: usize) -> String {
     if s.width() <= max_width {
         return s.to_string();
@@ -120,13 +122,12 @@ fn render_search_box(f: &mut Frame, browser: &ThreadBrowser, area: Rect) {
 }
 
 /// Thread 浏览面板（底部展开区）
-pub(crate) fn render_thread_browser(f: &mut Frame, app: &mut App, area: Rect) {
-    // 先克隆面板数据，避免 immutable → mutable borrow 冲突
-    let browser = app.sessions[app.active].core.thread_browser.clone();
-    let Some(browser) = browser else {
-        return;
-    };
-
+pub(crate) fn render_thread_browser(
+    f: &mut Frame,
+    browser: &ThreadBrowser,
+    app: &mut App,
+    area: Rect,
+) {
     let current_thread_id = app.sessions[app.active].current_thread_id.clone();
 
     let popup_area = area;

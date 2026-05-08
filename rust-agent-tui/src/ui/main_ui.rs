@@ -1,4 +1,4 @@
-mod panels;
+pub(crate) mod panels;
 mod popups;
 mod status_bar;
 mod sticky_header;
@@ -11,7 +11,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{login_panel::LoginPanelMode, App};
+use crate::app::App;
 use crate::ui::theme;
 use crate::ui::welcome;
 use rust_agent_middlewares::prelude::TodoStatus;
@@ -159,39 +159,29 @@ fn render_session_column(
         if app.oauth_prompt.is_some() {
             popups::oauth::render_oauth_popup(f, app, panel_area);
         }
-        if app.sessions[session_idx].core.login_panel.is_some() {
-            panels::login::render_login_panel(f, app, panel_area);
-        }
-        if app.sessions[session_idx].core.model_panel.is_some() {
-            panels::model::render_model_panel(f, app, panel_area);
-        }
-        if app.sessions[session_idx].core.config_panel.is_some() {
-            panels::config::render_config_panel(f, app, panel_area);
-        }
-        if app.sessions[session_idx].core.agent_panel.is_some() {
-            panels::agent::render_agent_panel(f, app, panel_area);
-        }
-        if app.sessions[session_idx].core.hooks_panel.is_some() {
-            panels::hooks::render_hooks_panel(f, app, panel_area);
-        }
-        if app.sessions[session_idx].core.thread_browser.is_some() {
-            panels::thread_browser::render_thread_browser(f, app, panel_area);
-        }
-        if app.cron.cron_panel.is_some() {
-            panels::cron::render_cron_panel(f, app, panel_area);
-        }
-        if app.mcp_panel.is_some() {
-            panels::mcp::render_mcp_panel(f, app, panel_area);
-        }
-        if app.status_panel.is_some() {
-            panels::status::render_status_panel(f, app, panel_area);
-        }
-        if app.memory_panel.is_some() {
-            panels::memory::render_memory_panel(f, app, panel_area);
-        }
-
-        if app.plugin_panel.is_some() {
-            panels::plugin::render_plugin_panel(f, app, panel_area);
+        // PanelManager 统一渲染分发：session 面板优先，global 面板次之
+        if !app.sessions[session_idx].agent.interaction_prompt.is_some()
+            && app.oauth_prompt.is_none()
+        {
+            if app.sessions[session_idx].core.session_panels.is_any_open() {
+                let mut state = app.sessions[session_idx]
+                    .core
+                    .session_panels
+                    .take_active()
+                    .expect("is_any_open was true");
+                state.render(f, app, panel_area);
+                app.sessions[session_idx]
+                    .core
+                    .session_panels
+                    .put_active(state);
+            } else if app.global_panels.is_any_open() {
+                let mut state = app
+                    .global_panels
+                    .take_active()
+                    .expect("is_any_open was true");
+                state.render(f, app, panel_area);
+                app.global_panels.put_active(state);
+            }
         }
     }
 
@@ -279,83 +269,23 @@ fn render_session_column(
 /// 计算底部展开区所需高度（无激活面板时返回 0）
 fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 {
     // plugin 面板可以占 70%，其他面板最多 60%
-    let is_plugin_panel = app.plugin_panel.is_some();
+    let is_plugin_panel = app.global_panels.is_active(crate::app::PanelKind::Plugin);
     let max_h = if is_plugin_panel {
         screen_height * 70 / 100
     } else {
         screen_height * 3 / 5
     };
-    let raw = if let Some(panel) = &app.sessions[app.active].core.thread_browser {
-        // 搜索框 3 行 + 空行 1 + items * 3 (标题+元数据+空行) + 快捷键 1 + 边框 2
-        let items = panel.total() as u16;
-        let base = (items * 3 + 7).max(9);
-        if panel.confirm_delete {
-            base + 2
-        } else {
-            base
-        }
-    } else if let Some(panel) = &app.sessions[app.active].core.login_panel {
-        let n = panel.providers.len() as u16;
-        match panel.mode {
-            // Edit/New: 1 top pad + 7 fields + 1 blank + 1 help + 2 borders = 12
-            LoginPanelMode::Edit | LoginPanelMode::New => 12,
-            // ConfirmDelete: n providers + 4 confirm area + 2 borders
-            LoginPanelMode::ConfirmDelete => (n + 6).max(7),
-            // Browse: n * 2 (name + models) + (n-1) spacing + 2 help/blank + 2 borders
-            LoginPanelMode::Browse => (n * 3 + 3).max(6),
-        }
-    } else if app.sessions[app.active].core.model_panel.is_some() {
-        12
-    } else if app.sessions[app.active].core.config_panel.is_some() {
-        14
-    } else if let Some(panel) = &app.sessions[app.active].core.agent_panel {
-        (panel.agents.len() as u16 * 2 + 6).max(6)
-    } else if app.sessions[app.active].core.hooks_panel.is_some() {
-        let panel = app.sessions[app.active].core.hooks_panel.as_ref().unwrap();
-        // 所有 entry 头行 + 当前展开详情 + 固定头部
-        let h = panel.total_content_lines();
-        h.max(8)
-    } else if app.cron.cron_panel.is_some() {
-        let base = (app
-            .cron
-            .cron_panel
-            .as_ref()
-            .map(|p| p.tasks.len())
-            .unwrap_or(0) as u16
-            + 4)
-        .max(6);
-        // 确认删除提示替换帮助行，高度不变
-        base
-    } else if let Some(panel) = &app.mcp_panel {
-        let line_count = match &panel.view {
-            crate::app::McpPanelView::ServerList => {
-                // BorderedPanel(2) + count(1) + blank(1) + sections + blank(1)
-                let section_headers = 2; // Project + User headers (最多)
-                panel.servers.len() + section_headers + 5
-            }
-            crate::app::McpPanelView::ServerDetail {
-                actions,
-                tools,
-                show_tools,
-                ..
-            } => {
-                // BorderedPanel(2) + info_lines(6) + tools_list + blank(1) + actions
-                let tools_lines = if *show_tools { tools.len() } else { 0 };
-                actions.len() + 9 + tools_lines
-            }
-        };
-        (line_count as u16).max(8)
-    } else if app.status_panel.is_some() {
-        14
-    } else if app.memory_panel.is_some() {
-        let items = app
-            .memory_panel
-            .as_ref()
-            .map(|p| p.entries.len())
-            .unwrap_or(0);
-        (items as u16 * 2 + 4).max(6)
-    } else if app.plugin_panel.is_some() {
-        max_h // plugin 面板使用最大高度 (70%)
+    let raw = if let Some(h) = app.sessions[app.active]
+        .core
+        .session_panels
+        .dispatch_desired_height(screen_height, screen_width)
+    {
+        h
+    } else if let Some(h) = app
+        .global_panels
+        .dispatch_desired_height(screen_height, screen_width)
+    {
+        h
     } else if let Some(crate::app::InteractionPrompt::Approval(p)) =
         &app.sessions[app.active].agent.interaction_prompt
     {

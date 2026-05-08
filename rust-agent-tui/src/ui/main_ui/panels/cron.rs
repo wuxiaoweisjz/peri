@@ -8,15 +8,12 @@ use ratatui::{
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
 use crate::app::App;
+use crate::app::CronPanel;
 use crate::ui::main_ui::highlight_line_spans;
 use crate::ui::theme;
 
 /// CronPanel 渲染
-pub(crate) fn render_cron_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(panel) = &app.cron.cron_panel else {
-        return;
-    };
-
+pub(crate) fn render_cron_panel(f: &mut Frame, panel: &CronPanel, app: &mut App, area: Rect) {
     let title = " 定时任务 ";
     let inner = BorderedPanel::new(Span::styled(
         title,
@@ -143,7 +140,10 @@ mod tests {
 
     async fn render_headless_cron_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.cron.cron_panel = Some(CronPanel::new(vec![]));
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Cron(CronPanel::new(
+                vec![],
+            )));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))

@@ -1,4 +1,5 @@
 use super::message_pipeline::PipelineAction;
+use super::plugin_panel::PluginPanel;
 use super::*;
 use rust_agent_middlewares::hitl::BatchItem;
 
@@ -481,7 +482,7 @@ impl App {
                 callback_tx,
             } => {
                 // 关闭 MCP 面板，避免与 OAuth 面板渲染冲突
-                self.mcp_panel = None;
+                self.global_panels.close_if(PanelKind::Mcp);
                 self.oauth_prompt = Some(OAuthPrompt::new(
                     server_name,
                     authorization_url,
@@ -492,7 +493,7 @@ impl App {
             AgentEvent::OAuthAuthorizationCompleted { server_name } => {
                 self.oauth_prompt = None;
                 // 刷新 MCP 面板的服务器列表以反映新的连接状态
-                if let Some(ref mut panel) = self.mcp_panel {
+                if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
                     panel.servers = self
                         .mcp_pool
                         .as_ref()
@@ -513,7 +514,7 @@ impl App {
             AgentEvent::OAuthAuthorizationFailed { server_name, error } => {
                 self.oauth_prompt = None;
                 // 刷新 MCP 面板的服务器列表（可能仍是 Failed 状态但信息已更新）
-                if let Some(ref mut panel) = self.mcp_panel {
+                if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
                     panel.servers = self
                         .mcp_pool
                         .as_ref()
@@ -539,7 +540,7 @@ impl App {
                 action,
                 success,
             } => {
-                if let Some(ref mut panel) = self.mcp_panel {
+                if let Some(ref mut panel) = self.global_panels.get_mut::<McpPanel>() {
                     panel.servers = self
                         .mcp_pool
                         .as_ref()
@@ -574,7 +575,7 @@ impl App {
                 message,
             } => {
                 // 从 installing/uninstalling 集合中移除
-                if let Some(ref mut panel) = self.plugin_panel {
+                if let Some(ref mut panel) = self.global_panels.get_mut::<PluginPanel>() {
                     panel.installing.remove(&plugin_id);
                     panel.uninstalling.remove(&plugin_id);
                     panel.marketplace_updating.remove(&plugin_id);
@@ -618,7 +619,7 @@ impl App {
                             // 重新加载面板数据
                             self.open_plugin_panel();
                             // 恢复面板状态
-                            if let Some(ref mut p) = self.plugin_panel {
+                            if let Some(ref mut p) = self.global_panels.get_mut::<PluginPanel>() {
                                 p.view = current_view;
                                 // 确保 cursor 不越界
                                 let max = p.marketplace_entries.len();
@@ -636,7 +637,7 @@ impl App {
                             let current_discover_cursor = panel.discover_cursor;
                             let current_marketplace_cursor = panel.marketplace_cursor;
                             self.open_plugin_panel();
-                            if let Some(ref mut p) = self.plugin_panel {
+                            if let Some(ref mut p) = self.global_panels.get_mut::<PluginPanel>() {
                                 p.view = current_view;
                                 p.cursor =
                                     current_cursor.min(p.current_list_len().saturating_sub(1));

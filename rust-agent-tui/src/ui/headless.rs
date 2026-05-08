@@ -1066,7 +1066,10 @@ mod tests {
             .into_iter()
             .cloned()
             .collect();
-        app.cron.cron_panel = Some(crate::app::CronPanel::new(tasks));
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Cron(
+                crate::app::CronPanel::new(tasks),
+            ));
 
         let notified = handle.render_notify.notified();
         drop(notified);
@@ -1097,7 +1100,9 @@ mod tests {
         // BorderedPanel 集成冒烟测试：渲染 agent panel 验证无 panic 且输出正确
         let (mut app, mut handle) = App::new_headless(120, 30).await;
 
-        app.sessions[app.active].core.agent_panel = Some(crate::app::AgentPanel::new(vec![], None));
+        app.sessions[app.active].core.session_panels.open(
+            crate::app::panel_manager::PanelState::Agent(crate::app::AgentPanel::new(vec![], None)),
+        );
 
         handle
             .terminal
@@ -2444,18 +2449,21 @@ mod tests {
             enabled: true,
             next_fire: Some(Utc::now() + chrono::Duration::seconds(60)),
         };
-        app.cron.cron_panel = Some(CronPanel::new(vec![task]));
-        assert_eq!(app.cron.cron_panel.as_ref().unwrap().tasks.len(), 1);
-        assert!(!app.cron.cron_panel.as_ref().unwrap().confirm_delete);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Cron(CronPanel::new(
+                vec![task],
+            )));
+        assert_eq!(app.global_panels.get::<CronPanel>().unwrap().tasks.len(), 1);
+        assert!(!app.global_panels.get::<CronPanel>().unwrap().confirm_delete);
 
         // Ctrl+D → 进入确认状态
         app.cron_panel_request_delete();
         assert!(
-            app.cron.cron_panel.as_ref().unwrap().confirm_delete,
+            app.global_panels.get::<CronPanel>().unwrap().confirm_delete,
             "Ctrl+D 应设置 confirm_delete = true"
         );
         assert_eq!(
-            app.cron.cron_panel.as_ref().unwrap().tasks.len(),
+            app.global_panels.get::<CronPanel>().unwrap().tasks.len(),
             1,
             "确认前不应删除任务"
         );
@@ -2463,22 +2471,22 @@ mod tests {
         // Esc / 其他键 → 取消确认
         app.cron_panel_cancel_delete();
         assert!(
-            !app.cron.cron_panel.as_ref().unwrap().confirm_delete,
+            !app.global_panels.get::<CronPanel>().unwrap().confirm_delete,
             "取消后 confirm_delete 应为 false"
         );
         assert_eq!(
-            app.cron.cron_panel.as_ref().unwrap().tasks.len(),
+            app.global_panels.get::<CronPanel>().unwrap().tasks.len(),
             1,
             "取消后任务应仍存在"
         );
 
         // 再次进入确认，然后 Enter 确认删除
         app.cron_panel_request_delete();
-        assert!(app.cron.cron_panel.as_ref().unwrap().confirm_delete);
+        assert!(app.global_panels.get::<CronPanel>().unwrap().confirm_delete);
         app.cron_panel_confirm_delete();
         // 面板为空时自动关闭
         assert!(
-            app.cron.cron_panel.is_none(),
+            !app.global_panels.is_any_open(),
             "删除最后一个任务后面板应关闭"
         );
     }
@@ -2498,8 +2506,14 @@ mod tests {
             enabled: true,
             next_fire: Some(Utc::now() + chrono::Duration::seconds(60)),
         };
-        app.cron.cron_panel = Some(CronPanel::new(vec![task]));
-        app.cron.cron_panel.as_mut().unwrap().confirm_delete = true;
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Cron(CronPanel::new(
+                vec![task],
+            )));
+        app.global_panels
+            .get_mut::<CronPanel>()
+            .unwrap()
+            .confirm_delete = true;
 
         handle
             .terminal
@@ -2545,12 +2559,15 @@ mod tests {
             },
         };
         app.zen_config = Some(cfg);
-        app.sessions[app.active].core.model_panel =
-            Some(ModelPanel::from_config(app.zen_config.as_ref().unwrap()));
+        app.sessions[app.active].core.session_panels.open(
+            crate::app::panel_manager::PanelState::Model(ModelPanel::from_config(
+                app.zen_config.as_ref().unwrap(),
+            )),
+        );
         app.sessions[app.active]
             .core
-            .model_panel
-            .as_mut()
+            .session_panels
+            .get_mut::<ModelPanel>()
             .unwrap()
             .active_tab = AliasTab::Sonnet;
 
@@ -2568,7 +2585,10 @@ mod tests {
             msg_text
         );
         assert!(
-            app.sessions[app.active].core.model_panel.is_none(),
+            !app.sessions[app.active]
+                .core
+                .session_panels
+                .is_active(crate::app::PanelKind::Model),
             "确认后面板应关闭"
         );
     }
@@ -2601,13 +2621,16 @@ mod tests {
             },
         };
         app.zen_config = Some(cfg);
-        app.sessions[app.active].core.login_panel =
-            Some(LoginPanel::from_config(app.zen_config.as_ref().unwrap()));
+        app.sessions[app.active].core.session_panels.open(
+            crate::app::panel_manager::PanelState::Login(LoginPanel::from_config(
+                app.zen_config.as_ref().unwrap(),
+            )),
+        );
         // 光标移到第二个 Provider
         app.sessions[app.active]
             .core
-            .login_panel
-            .as_mut()
+            .session_panels
+            .get_mut::<LoginPanel>()
             .unwrap()
             .cursor = 1;
 
@@ -2625,7 +2648,10 @@ mod tests {
             msg_text
         );
         assert!(
-            app.sessions[app.active].core.login_panel.is_none(),
+            !app.sessions[app.active]
+                .core
+                .session_panels
+                .is_active(crate::app::PanelKind::Login),
             "激活后面板应关闭"
         );
     }
@@ -2893,6 +2919,83 @@ mod tests {
                 pre_collapsed, collapsed
             );
             assert!(!*is_running, "Done 后 is_running 应为 false");
+        }
+    }
+
+    mod split_panel_tests {
+        use crate::app::panel_manager::PanelKind;
+        use crate::app::App;
+
+        #[tokio::test]
+        async fn test_split_session_panel_independence() {
+            let (mut app, _handle) = App::new_headless(120, 40).await;
+
+            // 创建第二个 session
+            app.new_session();
+            assert_eq!(app.sessions.len(), 2);
+
+            // 在 session 0 打开 Model 面板
+            app.active = 0;
+            app.open_model_panel();
+            assert!(
+                app.sessions[0]
+                    .core
+                    .session_panels
+                    .is_active(PanelKind::Model),
+                "session 0 应有 Model 面板"
+            );
+            assert!(
+                !app.sessions[1].core.session_panels.is_any_open(),
+                "session 1 不应有面板"
+            );
+
+            // 在 session 1 打开 Login 面板（需要 zen_config）
+            app.active = 1;
+            app.zen_config = Some(crate::config::ZenConfig::default());
+            app.open_login_panel();
+            assert!(
+                app.sessions[1]
+                    .core
+                    .session_panels
+                    .is_active(PanelKind::Login),
+                "session 1 应有 Login 面板"
+            );
+            // session 0 的面板不应被关闭
+            assert!(
+                app.sessions[0]
+                    .core
+                    .session_panels
+                    .is_active(PanelKind::Model),
+                "session 0 的 Model 面板不应被关闭"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_split_session_global_panel_closes_all_session_panels() {
+            let (mut app, _handle) = App::new_headless(120, 40).await;
+
+            app.new_session();
+            assert_eq!(app.sessions.len(), 2);
+
+            // session 0 打开 Model 面板
+            app.active = 0;
+            app.open_model_panel();
+
+            // session 1 打开全局 Status 面板 → 应关闭所有 session 面板
+            app.active = 1;
+            app.open_status_panel(0);
+            assert!(
+                app.global_panels.is_active(PanelKind::Status),
+                "应有 Status 全局面板"
+            );
+            assert!(
+                !app.sessions[0].core.session_panels.is_any_open(),
+                "session 0 的 Model 面板应被关闭"
+            );
+            assert!(
+                !app.sessions[1].core.session_panels.is_any_open(),
+                "session 1 不应有 session 面板"
+            );
         }
     }
 }

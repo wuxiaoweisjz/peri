@@ -7,32 +7,24 @@ use ratatui::{
 
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::{App, DetailAction, McpPanelView};
+use crate::app::{App, DetailAction, McpPanel, McpPanelView};
 use crate::ui::main_ui::highlight_line_spans;
 use crate::ui::theme;
 
 use rust_agent_middlewares::mcp::{ClientStatus, ConfigSource, OAuthStatus, ServerInfo};
 
 /// MCP 管理面板渲染
-pub(crate) fn render_mcp_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(panel) = app.mcp_panel.as_ref() else {
-        return;
-    };
-
+pub(crate) fn render_mcp_panel(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect) {
     if panel.view.is_server_list() {
-        render_server_list(f, app, area);
+        render_server_list(f, panel, app, area);
     } else {
-        render_server_detail(f, app, area);
+        render_server_detail(f, panel, app, area);
     }
 }
 
-fn render_server_list(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_server_list(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect) {
     // Phase 1: 读取面板数据并构建所有行（不可变借用 panel）
     let (mut lines, scroll_offset) = {
-        let panel = match app.mcp_panel.as_ref() {
-            Some(p) => p,
-            None => return,
-        };
         let scroll_offset = panel.scroll_offset;
         let cursor = panel.cursor;
         let servers = &panel.servers;
@@ -170,12 +162,8 @@ fn render_server_group(
     }
 }
 
-fn render_server_detail(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_server_detail(f: &mut Frame, panel: &McpPanel, app: &mut App, area: Rect) {
     let (server_name, tools, resources, actions, show_tools, cursor, scroll_offset) = {
-        let panel = match app.mcp_panel.as_ref() {
-            Some(p) => p,
-            None => return,
-        };
         let McpPanelView::ServerDetail {
             server_name,
             tools,
@@ -210,10 +198,7 @@ fn render_server_detail(f: &mut Frame, app: &mut App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
 
     // 获取当前 server info
-    let server_info = app
-        .mcp_panel
-        .as_ref()
-        .and_then(|p| p.servers.iter().find(|s| s.name == server_name));
+    let server_info = panel.servers.iter().find(|s| s.name == server_name);
 
     let label_width = 18;
 
@@ -479,7 +464,9 @@ mod tests {
 
     async fn render_mcp_panel(servers: Vec<ServerInfo>) -> crate::ui::headless::HeadlessHandle {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.mcp_panel = Some(McpPanel::new(servers));
+        let panel = McpPanel::new(servers);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(panel));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))
@@ -512,10 +499,12 @@ mod tests {
         let mut srv = make_server("test-srv", ClientStatus::Connected);
         srv.transport_type = "http".to_string();
         srv.url = Some("https://example.com/mcp".to_string());
-        app.mcp_panel = Some(McpPanel::new(vec![srv]));
+        let panel = McpPanel::new(vec![srv]);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(panel));
         app.mcp_panel_enter();
 
-        match &app.mcp_panel.as_ref().unwrap().view {
+        match &app.global_panels.get::<McpPanel>().unwrap().view {
             McpPanelView::ServerDetail { actions, .. } => {
                 assert!(
                     actions
@@ -560,13 +549,15 @@ mod tests {
         plugin_srv.source = Some(ConfigSource::Plugin);
         plugin_srv.plugin_source = Some("context7@alpha".to_string());
 
-        app.mcp_panel = Some(McpPanel::new(vec![plugin_srv]));
+        let panel = McpPanel::new(vec![plugin_srv]);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(panel));
 
         // Enter detail view
         app.mcp_panel_enter();
 
         // Should be in ServerDetail view
-        match &app.mcp_panel.as_ref().unwrap().view {
+        match &app.global_panels.get::<McpPanel>().unwrap().view {
             McpPanelView::ServerDetail {
                 server_name,
                 actions,
@@ -610,17 +601,19 @@ mod tests {
         srv_b.url = Some("https://b.example.com/mcp".to_string());
         srv_b.transport_type = "http".to_string();
 
-        app.mcp_panel = Some(McpPanel::new(vec![srv_a, srv_b]));
+        let panel = McpPanel::new(vec![srv_a, srv_b]);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(panel.clone()));
 
         // 选择第二个 server 并进入详情
         {
-            let panel = app.mcp_panel.as_mut().unwrap();
+            let panel = app.global_panels.get_mut::<McpPanel>().unwrap();
             panel.cursor = 1;
         }
         app.mcp_panel_enter();
 
         // 验证进入了 server-b 的详情
-        match &app.mcp_panel.as_ref().unwrap().view {
+        match &app.global_panels.get::<McpPanel>().unwrap().view {
             McpPanelView::ServerDetail { server_name, .. } => {
                 assert_eq!(server_name, "server-b", "应进入 server-b 的详情页");
             }
@@ -654,17 +647,19 @@ mod tests {
         connected_srv.url = Some("https://old.example.com/mcp".to_string());
         connected_srv.transport_type = "http".to_string();
 
-        app.mcp_panel = Some(McpPanel::new(vec![connected_srv, uninit_srv]));
+        let panel = McpPanel::new(vec![connected_srv, uninit_srv]);
+        app.global_panels
+            .open(crate::app::panel_manager::PanelState::Mcp(panel.clone()));
 
         // 排序后 "new-server" < "old-server"（字母序），uninit 在位置 0
         {
-            let panel = app.mcp_panel.as_mut().unwrap();
+            let panel = app.global_panels.get_mut::<McpPanel>().unwrap();
             panel.cursor = 0;
         }
         app.mcp_panel_enter();
 
         // 验证操作菜单只有 Reconnect
-        match &app.mcp_panel.as_ref().unwrap().view {
+        match &app.global_panels.get::<McpPanel>().unwrap().view {
             McpPanelView::ServerDetail {
                 server_name,
                 actions,

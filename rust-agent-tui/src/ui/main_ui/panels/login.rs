@@ -8,16 +8,12 @@ use ratatui::{
 
 use perihelion_widgets::BorderedPanel;
 
-use crate::app::login_panel::{LoginEditField, LoginPanelMode};
+use crate::app::login_panel::{LoginEditField, LoginPanel, LoginPanelMode};
 use crate::app::App;
 use crate::ui::theme;
 
 /// /login 面板渲染（底部展开区）
-pub(crate) fn render_login_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.sessions[app.active].core.login_panel else {
-        return;
-    };
-
+pub(crate) fn render_login_panel(f: &mut Frame, panel: &LoginPanel, app: &App, area: Rect) {
     let border_color = match panel.mode {
         LoginPanelMode::Browse => theme::BORDER,
         LoginPanelMode::Edit => theme::WARNING,
@@ -280,7 +276,7 @@ mod tests {
 
     async fn render_headless_login_browse() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.sessions[app.active].core.login_panel = Some(LoginPanel {
+        let panel = LoginPanel {
             providers: vec![ProviderConfig {
                 id: "test".to_string(),
                 provider_type: "openai".to_string(),
@@ -310,7 +306,15 @@ mod tests {
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
             scroll_offset: 0,
-        });
+        };
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Login(panel.clone()));
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Login(panel));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))
@@ -336,7 +340,7 @@ mod tests {
 
     async fn render_headless_login_edit() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.sessions[app.active].core.login_panel = Some(LoginPanel {
+        let panel = LoginPanel {
             providers: vec![],
             mode: LoginPanelMode::New,
             cursor: 0,
@@ -355,7 +359,15 @@ mod tests {
             cur_sonnet_model: 0,
             cur_haiku_model: 0,
             scroll_offset: 0,
-        });
+        };
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Login(panel.clone()));
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Login(panel));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))

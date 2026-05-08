@@ -5,16 +5,10 @@ use rust_agent_middlewares::prelude::SkillMetadata;
 use tokio::sync::{mpsc, Notify};
 use tui_textarea::TextArea;
 
+use super::hitl_prompt::PendingAttachment;
 use crate::command::CommandRegistry;
 use crate::ui::message_view::MessageViewModel;
 use crate::ui::render_thread::{RenderCache, RenderEvent};
-
-use super::agent_panel::AgentPanel;
-use super::hitl_prompt::PendingAttachment;
-use super::hooks_panel::HooksPanel;
-use super::login_panel::LoginPanel;
-use super::model_panel::ModelPanel;
-use crate::thread::ThreadBrowser;
 
 use super::message_pipeline::MessagePipeline;
 
@@ -43,12 +37,7 @@ pub struct AppCore {
     pub hint_cursor: Option<usize>,
     pub pending_attachments: Vec<PendingAttachment>,
     pub last_human_message: Option<String>,
-    pub model_panel: Option<ModelPanel>,
-    pub login_panel: Option<LoginPanel>,
-    pub agent_panel: Option<AgentPanel>,
-    pub hooks_panel: Option<HooksPanel>,
-    pub config_panel: Option<crate::app::config_panel::ConfigPanel>,
-    pub thread_browser: Option<ThreadBrowser>,
+    pub session_panels: super::panel_manager::PanelManager,
     /// 输入历史（已发送消息的文本，最新的在前面）
     pub input_history: Vec<String>,
     /// 当前浏览的历史索引，None = 不在浏览历史
@@ -117,12 +106,7 @@ impl AppCore {
             hint_cursor: None,
             pending_attachments: Vec::new(),
             last_human_message: None,
-            model_panel: None,
-            login_panel: None,
-            agent_panel: None,
-            hooks_panel: None,
-            config_panel: None,
-            thread_browser: None,
+            session_panels: super::panel_manager::PanelManager::new(),
             input_history: Vec::new(),
             history_index: None,
             draft_input: None,

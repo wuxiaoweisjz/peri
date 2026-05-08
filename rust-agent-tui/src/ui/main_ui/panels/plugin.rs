@@ -9,56 +9,44 @@ use ratatui::{
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
 use crate::app::plugin_panel::{
-    DetailAction, DiscoverDetailAction, MarketplaceViewStatus, PluginItemType, PluginPanelView,
+    DetailAction, DiscoverDetailAction, MarketplaceViewStatus, PluginItemType, PluginPanel,
+    PluginPanelView,
 };
 use crate::app::App;
 use crate::ui::theme;
 
 use rust_agent_middlewares::plugin::InstallScope;
 
-pub fn render_plugin_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let is_detail = app.plugin_panel.as_ref().is_some_and(|p| p.is_detail());
+pub fn render_plugin_panel(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
+    let is_detail = panel.is_detail();
 
     if is_detail {
         // 检查是否是添加 marketplace 模式
-        let is_add_marketplace = app
-            .plugin_panel
-            .as_ref()
-            .is_some_and(|p| p.add_marketplace_active);
+        let is_add_marketplace = panel.add_marketplace_active;
         if is_add_marketplace {
-            render_add_marketplace(f, app, area);
+            render_add_marketplace(f, panel, app, area);
             return;
         }
 
-        let is_discover_detail = app
-            .plugin_panel
-            .as_ref()
-            .is_some_and(|p| p.discover_detail_index.is_some());
+        let is_discover_detail = panel.discover_detail_index.is_some();
         if is_discover_detail {
-            render_discover_detail(f, app, area);
+            render_discover_detail(f, panel, app, area);
         } else {
-            render_detail(f, app, area);
+            render_detail(f, panel, app, area);
         }
     } else {
         // Discover 视图使用固定搜索框布局
-        let is_discover = app
-            .plugin_panel
-            .as_ref()
-            .is_some_and(|p| p.view == PluginPanelView::Discover);
+        let is_discover = panel.view == PluginPanelView::Discover;
         if is_discover {
-            render_discover_list(f, app, area);
+            render_discover_list(f, panel, app, area);
         } else {
-            render_list(f, app, area);
+            render_list(f, panel, app, area);
         }
     }
 }
 
-fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
     let (lines, scroll_offset, cursor_row) = {
-        let panel = match &app.plugin_panel {
-            Some(p) => p,
-            None => return,
-        };
         let scroll_offset = panel.scroll_offset;
         let mut lines: Vec<Line> = Vec::new();
         let mut cursor_row = 0; // 光标所在行号（不含 Tab 行）
@@ -118,7 +106,7 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
                             if is_cursor {
                                 cursor_row = table_header_height + row_idx;
                             }
-                            let cursor_char = if is_cursor { "❯ " } else { "  " };
+                            let cursor_char = if is_cursor { "\u{276F} " } else { "  " };
 
                             let type_label = match entry.plugin_type {
                                 PluginItemType::Plugin => "Plugin",
@@ -126,7 +114,7 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
                             };
 
                             let (status_icon, status_style) = if entry.enabled {
-                                ("✔ ", Style::default().fg(theme::SAGE))
+                                ("\u{2714} ", Style::default().fg(theme::SAGE))
                             } else {
                                 ("  ", Style::default().fg(theme::MUTED))
                             };
@@ -210,7 +198,7 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
                             if is_cursor {
                                 cursor_row = table_header_height + row_idx;
                             }
-                            let cursor_char = if is_cursor { "❯ " } else { "  " };
+                            let cursor_char = if is_cursor { "\u{276F} " } else { "  " };
 
                             let name_style = if is_cursor {
                                 Style::default()
@@ -255,7 +243,7 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
             }
             PluginPanelView::Marketplaces => {
                 // 行布局：Tab(1) + 空行(1) + Add块(3行) + 每个marketplace(4行)
-                // cursor=0→row2, cursor=1→row5, cursor=2→row9, ... cursor=n→row(5+(n-1)*4)
+                // cursor=0->row2, cursor=1->row5, cursor=2->row9, ... cursor=n->row(5+(n-1)*4)
                 cursor_row = if panel.marketplace_confirm_delete.is_some() {
                     // 确认删除状态：确认消息在 row 2
                     2
@@ -273,7 +261,7 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
                         lines.push(Line::from("")); // 空行
                         lines.push(Line::from(vec![
                             Span::styled(
-                                "  确认要移除 marketplace ",
+                                "  \u{786E}\u{8BA4}\u{8981}\u{79FB}\u{9664} marketplace ",
                                 Style::default().fg(theme::TEXT),
                             ),
                             Span::styled(
@@ -286,21 +274,24 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
                         ]));
                         lines.push(Line::from("")); // 空行
                         lines.push(Line::from(vec![
-                            Span::styled("  按下 ", Style::default().fg(theme::MUTED)),
+                            Span::styled("  \u{6309}\u{4E0B} ", Style::default().fg(theme::MUTED)),
                             Span::styled(
                                 "Enter",
                                 Style::default()
                                     .fg(theme::ACCENT)
                                     .add_modifier(Modifier::BOLD),
                             ),
-                            Span::styled(" 确认，", Style::default().fg(theme::MUTED)),
+                            Span::styled(
+                                " \u{786E}\u{8BA4}\u{FF0C}",
+                                Style::default().fg(theme::MUTED),
+                            ),
                             Span::styled(
                                 "Esc",
                                 Style::default()
                                     .fg(theme::ACCENT)
                                     .add_modifier(Modifier::BOLD),
                             ),
-                            Span::styled(" 取消", Style::default().fg(theme::MUTED)),
+                            Span::styled(" \u{53D6}\u{6D88}", Style::default().fg(theme::MUTED)),
                         ]));
                     }
                 } else {
@@ -320,7 +311,10 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("     ".to_string(), Style::default()),
-                        Span::styled("添加新的 marketplace 源", Style::default().fg(theme::MUTED)),
+                        Span::styled(
+                            "\u{6DFB}\u{52A0}\u{65B0}\u{7684} marketplace \u{6E90}",
+                            Style::default().fg(theme::MUTED),
+                        ),
                     ]));
                     lines.push(Line::from(""));
 
@@ -451,8 +445,8 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
     // 确保光标行在可视区域内
     scroll_state.ensure_visible(cursor_row as u16, visible_height);
 
-    // 回写 scroll offset
-    if let Some(p) = &mut app.plugin_panel {
+    // 回写 scroll offset（通过 global_panels）
+    if let Some(p) = app.global_panels.get_mut::<PluginPanel>() {
         p.scroll_offset = scroll_state.offset();
     }
 
@@ -461,12 +455,8 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
         .render(f, inner, &mut scroll_state);
 }
 
-fn render_detail(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
     let (lines, scroll_offset) = {
-        let panel = match &app.plugin_panel {
-            Some(p) => p,
-            None => return,
-        };
         let entry_idx = match panel.detail_index {
             Some(i) => i,
             None => return,
@@ -528,9 +518,9 @@ fn render_detail(f: &mut Frame, app: &mut App, area: Rect) {
                 "Uninstalling\u{2026}",
             )
         } else if entry.enabled {
-            ("✔", Style::default().fg(theme::SAGE), "Enabled")
+            ("\u{2714}", Style::default().fg(theme::SAGE), "Enabled")
         } else {
-            ("◯", Style::default().fg(theme::MUTED), "Disabled")
+            ("\u{25CB}", Style::default().fg(theme::MUTED), "Disabled")
         };
         lines.push(Line::from(vec![
             Span::styled("  Status: ".to_string(), Style::default().fg(theme::MUTED)),
@@ -552,25 +542,25 @@ fn render_detail(f: &mut Frame, app: &mut App, area: Rect) {
 
             if !entry.commands.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!("  • Commands: {}", entry.commands.join(", ")),
+                    format!("  \u{2022} Commands: {}", entry.commands.join(", ")),
                     Style::default().fg(theme::TEXT),
                 )));
             }
             if !entry.skills.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!("  • Skills: {}", entry.skills.join(", ")),
+                    format!("  \u{2022} Skills: {}", entry.skills.join(", ")),
                     Style::default().fg(theme::TEXT),
                 )));
             }
             if !entry.agents.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!("  • Agents: {}", entry.agents.join(", ")),
+                    format!("  \u{2022} Agents: {}", entry.agents.join(", ")),
                     Style::default().fg(theme::TEXT),
                 )));
             }
             if !entry.mcp_servers.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!("  • MCP servers: {}", entry.mcp_servers.join(", ")),
+                    format!("  \u{2022} MCP servers: {}", entry.mcp_servers.join(", ")),
                     Style::default().fg(theme::TEXT),
                 )));
             }
@@ -582,7 +572,7 @@ fn render_detail(f: &mut Frame, app: &mut App, area: Rect) {
 
         for (i, action) in DetailAction::ALL.iter().enumerate() {
             let is_cursor = i == detail_cursor;
-            let cursor_char = if is_cursor { "❯ " } else { "  " };
+            let cursor_char = if is_cursor { "\u{276F} " } else { "  " };
             let label = action.label(entry.enabled);
             let style = if is_cursor {
                 Style::default()
@@ -632,12 +622,8 @@ fn detail_kv_line<'a>(key: &str, value: &str) -> Line<'a> {
     ])
 }
 
-fn render_discover_detail(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_discover_detail(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
     let (lines, scroll_offset) = {
-        let panel = match &app.plugin_panel {
-            Some(p) => p,
-            None => return,
-        };
         let plugin_idx = match panel.discover_detail_index {
             Some(i) => i,
             None => return,
@@ -764,11 +750,7 @@ const DISCOVER_SEARCH_OVERHEAD: u16 = 4;
 const DISCOVER_FIXED_OVERHEAD: u16 = DISCOVER_TAB_OVERHEAD + DISCOVER_SEARCH_OVERHEAD; // 6
 
 /// 渲染搜索框到固定区域（不参与滚动）
-fn render_discover_search_box(
-    f: &mut Frame,
-    panel: &crate::app::plugin_panel::PluginPanel,
-    area: Rect,
-) {
+fn render_discover_search_box(f: &mut Frame, panel: &PluginPanel, area: Rect) {
     if area.width < 4 || area.height < 3 {
         return;
     }
@@ -809,14 +791,8 @@ fn render_discover_search_box(
     f.render_widget(search_para, search_inner);
 }
 
-/// Discover 视图：Tab 行 → 搜索框（固定） → 可滚动插件列表（带跟随）
-fn render_discover_list(f: &mut Frame, app: &mut App, area: Rect) {
-    // 克隆面板数据避免 borrow 冲突
-    let panel = match &app.plugin_panel {
-        Some(p) => p.clone(),
-        None => return,
-    };
-
+/// Discover 视图：Tab 行 -> 搜索框（固定） -> 可滚动插件列表（带跟随）
+fn render_discover_list(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
     // Tab 行 Spans
     let tab_labels: Vec<Span> = PluginPanelView::ALL
         .iter()
@@ -850,7 +826,7 @@ fn render_discover_list(f: &mut Frame, app: &mut App, area: Rect) {
     .border_style(Style::default().fg(theme::BORDER))
     .render(f, area);
 
-    // ── 布局：Tab 行(2行) → 搜索框(4行) → 列表(剩余) ──
+    // -- 布局：Tab 行(2行) -> 搜索框(4行) -> 列表(剩余) --
     // Tab 行直接渲染到 inner 顶部
     let tab_area = Rect {
         x: inner.x,
@@ -873,14 +849,14 @@ fn render_discover_list(f: &mut Frame, app: &mut App, area: Rect) {
         height: inner.height.saturating_sub(DISCOVER_FIXED_OVERHEAD),
     };
 
-    // ── 1. 渲染 Tab 行（固定） ──
+    // -- 1. 渲染 Tab 行（固定） --
     let tab_para = Paragraph::new(vec![Line::from(tab_labels), Line::from("")]);
     f.render_widget(tab_para, tab_area);
 
-    // ── 2. 渲染搜索框（固定） ──
-    render_discover_search_box(f, &panel, search_area);
+    // -- 2. 渲染搜索框（固定） --
+    render_discover_search_box(f, panel, search_area);
 
-    // ── 3. 构建列表内容（纯插件列表，不含 Tab/搜索框） ──
+    // -- 3. 构建列表内容（纯插件列表，不含 Tab/搜索框） --
     let mut lines: Vec<Line> = Vec::new();
 
     let filtered = panel.discover_filtered_plugins();
@@ -921,7 +897,7 @@ fn render_discover_list(f: &mut Frame, app: &mut App, area: Rect) {
 
             let display_name = truncate_display(&plugin.name, max_name_width);
 
-            // 第一行：cursor + checkbox + name · marketplace
+            // 第一行：cursor + checkbox + name . marketplace
             let mut spans = vec![
                 Span::styled(
                     cursor_char.to_string(),
@@ -1015,14 +991,14 @@ fn render_discover_list(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    // ── 跟随机制：确保光标行在可视区域内 ──
+    // -- 跟随机制：确保光标行在可视区域内 --
     let cursor_row = (panel.discover_cursor * 2) as u16;
     let visible_height = list_area.height;
     let mut scroll_state = ScrollState::with_offset(panel.discover_scroll);
     scroll_state.ensure_visible(cursor_row, visible_height);
 
-    // 回写 scroll offset 供下次渲染使用
-    if let Some(p) = &mut app.plugin_panel {
+    // 回写 scroll offset 供下次渲染使用（通过 global_panels）
+    if let Some(p) = app.global_panels.get_mut::<PluginPanel>() {
         p.discover_scroll = scroll_state.offset();
     }
 
@@ -1058,12 +1034,7 @@ fn truncate_display(s: &str, max_width: usize) -> String {
 }
 
 /// 渲染 Add Marketplace 面板（对齐 Claude Code 设计）
-fn render_add_marketplace(f: &mut Frame, app: &mut App, area: Rect) {
-    let panel = match &app.plugin_panel {
-        Some(p) => p,
-        None => return,
-    };
-
+fn render_add_marketplace(f: &mut Frame, panel: &PluginPanel, app: &mut App, area: Rect) {
     let input_value = panel.add_marketplace_input.value();
     let display_text = panel.add_marketplace_input.display_text('\u{2022}');
 
@@ -1106,12 +1077,12 @@ fn render_add_marketplace(f: &mut Frame, app: &mut App, area: Rect) {
     for (example, desc) in &examples {
         if desc.is_empty() {
             lines.push(Line::from(vec![
-                Span::styled("   · ", Style::default().fg(theme::MUTED)),
+                Span::styled("   \u{00B7} ", Style::default().fg(theme::MUTED)),
                 Span::styled(*example, Style::default().fg(theme::MUTED)),
             ]));
         } else {
             lines.push(Line::from(vec![
-                Span::styled("   · ", Style::default().fg(theme::MUTED)),
+                Span::styled("   \u{00B7} ", Style::default().fg(theme::MUTED)),
                 Span::styled(*example, Style::default().fg(theme::MUTED)),
                 Span::styled(format!(" ({})", desc), Style::default().fg(theme::MUTED)),
             ]));
@@ -1147,7 +1118,7 @@ fn render_add_marketplace(f: &mut Frame, app: &mut App, area: Rect) {
                 .fg(theme::MUTED)
                 .add_modifier(Modifier::ITALIC),
         ),
-        Span::styled(" · ", Style::default().fg(theme::MUTED)),
+        Span::styled(" \u{00B7} ", Style::default().fg(theme::MUTED)),
         Span::styled(
             "Esc to cancel",
             Style::default()

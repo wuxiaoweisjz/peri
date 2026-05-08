@@ -7,17 +7,12 @@ use ratatui::{
 
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
-use crate::app::hooks_panel::{hook_type_label, hook_type_summary};
+use crate::app::hooks_panel::{hook_type_label, hook_type_summary, HooksPanel};
 use crate::app::App;
 use crate::ui::theme;
 
 /// /hooks 面板渲染（底部展开区）
-pub(crate) fn render_hooks_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    let panel = app.sessions[app.active].core.hooks_panel.clone();
-    let Some(panel) = panel else {
-        return;
-    };
-
+pub(crate) fn render_hooks_panel(f: &mut Frame, panel: &HooksPanel, app: &mut App, area: Rect) {
     let total_hooks = panel.total_hooks();
     let entry_count = panel.total();
 
@@ -163,7 +158,15 @@ mod tests {
 
     async fn render_headless_hooks_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.sessions[app.active].core.hooks_panel = Some(HooksPanel::new(vec![]));
+        let panel = HooksPanel::new(vec![]);
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Hooks(panel.clone()));
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Hooks(panel));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))
@@ -214,7 +217,12 @@ mod tests {
             plugin_options: HashMap::new(),
         };
 
-        app.sessions[app.active].core.hooks_panel = Some(HooksPanel::new(vec![registered]));
+        app.sessions[app.active].core.session_panels.open(
+            crate::app::panel_manager::PanelState::Hooks(HooksPanel::new(vec![registered.clone()])),
+        );
+        app.sessions[app.active].core.session_panels.open(
+            crate::app::panel_manager::PanelState::Hooks(HooksPanel::new(vec![registered])),
+        );
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))

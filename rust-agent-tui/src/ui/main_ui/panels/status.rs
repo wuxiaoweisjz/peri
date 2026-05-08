@@ -1,4 +1,4 @@
-use crate::app::status_panel::{STATUS_TAB_CONTEXT, STATUS_TAB_COST};
+use crate::app::status_panel::{StatusPanel, STATUS_TAB_CONTEXT, STATUS_TAB_COST};
 use crate::app::App;
 use crate::ui::theme;
 use perihelion_widgets::{tab_bar::TabBar, BorderedPanel};
@@ -10,11 +10,7 @@ use ratatui::{
     Frame,
 };
 
-pub(crate) fn render_status_panel(f: &mut Frame, app: &App, area: Rect) {
-    let Some(panel) = &app.status_panel else {
-        return;
-    };
-
+pub(crate) fn render_status_panel(f: &mut Frame, panel: &StatusPanel, app: &App, area: Rect) {
     let inner = BorderedPanel::new(Span::styled(
         " Status ",
         Style::default()

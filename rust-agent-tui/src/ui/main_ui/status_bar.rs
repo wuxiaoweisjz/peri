@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
+use crate::app::{AgentPanel, App};
 use crate::ui::theme;
 
 pub(crate) fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
@@ -210,7 +210,11 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // Agent 面板信息（仅面板激活时）
-    if let Some(panel) = &app.sessions[app.active].core.agent_panel {
+    if let Some(panel) = app.sessions[app.active]
+        .core
+        .session_panels
+        .get::<AgentPanel>()
+    {
         if has_content {
             left_spans.push(Span::styled(" │ ", Style::default().fg(theme::MUTED)));
         }
@@ -238,117 +242,69 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         .add_modifier(Modifier::BOLD);
     let desc_style = Style::default().fg(theme::MUTED);
 
-    macro_rules! key { ($($key:expr => $desc:expr),+ $(,)?) => { vec![$( Span::styled($key, key_style), Span::styled($desc, desc_style) ),+] } }
-
     let right_spans: Vec<Span> = match &app.sessions[app.active].agent.interaction_prompt {
-        Some(_) if app.oauth_prompt.is_some() => {
-            key!["Ctrl+O" => ":打开浏览器  ", "Enter" => ":提交  ", "Esc" => ":取消"]
-        }
-        Some(crate::app::InteractionPrompt::Questions(_)) => {
-            key![" Tab" => ":切换  ", "↑↓" => ":移动  ", "Space" => ":选择  ", "Enter" => ":确认"]
-        }
-        Some(crate::app::InteractionPrompt::Approval(_)) => {
-            key![" ↑↓" => ":移动  ", "Space" => ":切换  ", "Enter" => ":确认"]
-        }
+        Some(_) if app.oauth_prompt.is_some() => format_hints(
+            &[
+                ("Ctrl+O", ":打开浏览器"),
+                ("Enter", ":提交"),
+                ("Esc", ":取消"),
+            ],
+            key_style,
+            desc_style,
+        ),
+        Some(crate::app::InteractionPrompt::Questions(_)) => format_hints(
+            &[
+                ("Tab", ":切换"),
+                ("↑↓", ":移动"),
+                ("Space", ":选择"),
+                ("Enter", ":确认"),
+            ],
+            key_style,
+            desc_style,
+        ),
+        Some(crate::app::InteractionPrompt::Approval(_)) => format_hints(
+            &[("↑↓", ":移动"), ("Space", ":切换"), ("Enter", ":确认")],
+            key_style,
+            desc_style,
+        ),
         None => {
-            if app.sessions[app.active].core.agent_panel.is_some() {
-                key!["↑↓" => ":选择  ", "Enter" => ":确认  ", "Esc" => ":取消"]
-            } else if app.sessions[app.active].core.hooks_panel.is_some() {
-                key!["↑↓" => ":导航  ", "Esc" => ":关闭"]
-            } else if let Some(cron_panel) = &app.cron.cron_panel {
-                if cron_panel.confirm_delete {
-                    key!["Enter" => ":确认  ", "其他键" => ":取消"]
-                } else {
-                    key!["↑↓" => ":移动  ", "Enter" => ":切换  ", "Ctrl+D" => ":删除  ", "Esc" => ":关闭"]
-                }
-            } else if let Some(login_panel) = &app.sessions[app.active].core.login_panel {
-                use crate::app::login_panel::LoginPanelMode;
-                match login_panel.mode {
-                    LoginPanelMode::ConfirmDelete => {
-                        key!["Enter" => ":确认删除  ", "Esc" => ":取消"]
-                    }
-                    LoginPanelMode::Edit | LoginPanelMode::New => {
-                        key!["↑↓" => ":切换字段  ", "←→/Space" => ":切换Type  ", "Enter" => ":保存  ", "Ctrl+V" => ":粘贴  ", "Esc" => ":取消"]
-                    }
-                    LoginPanelMode::Browse => {
-                        key!["Enter" => ":选中  ", "Tab" => ":编辑  ", "Ctrl+N" => ":新建  ", "Ctrl+D" => ":删除  ", "Esc" => ":关闭"]
-                    }
-                }
-            } else if app.mcp_panel.is_some() {
-                let view_label = app.mcp_panel.as_ref().map(|p| match &p.view {
-                    crate::app::McpPanelView::ServerList => {
-                        if p.confirm_delete.is_some() {
-                            key!["Enter" => ":确认  ", "其他键" => ":取消"]
-                        } else {
-                            key!["↑↓" => ":移动  ", "Enter" => ":详情  ", "Ctrl+R" => ":重连  ", "Ctrl+D" => ":删除  ", "Esc" => ":关闭"]
-                        }
-                    }
-                    crate::app::McpPanelView::ServerDetail { .. } => {
-                        key!["↑↓" => ":移动  ", "Enter" => ":执行  ", "Esc" => ":返回"]
-                    }
-                });
-                view_label.unwrap_or_default()
-            } else if app.sessions[app.active].core.config_panel.is_some() {
-                let panel = app.sessions[app.active].core.config_panel.as_ref().unwrap();
-                match panel.mode {
-                    crate::app::config_panel::ConfigPanelMode::Browse => {
-                        key!["↑↓" => ":导航  ", "Enter" => ":编辑  ", "Esc" => ":关闭"]
-                    }
-                    crate::app::config_panel::ConfigPanelMode::Edit => {
-                        key!["↑↓" => ":切换字段  ", "←→/Space" => ":切换  ", "Enter" => ":保存  ", "Ctrl+V" => ":粘贴  ", "Esc" => ":取消"]
-                    }
-                }
-            } else if app.sessions[app.active].core.model_panel.is_some() {
-                key!["↑↓" => ":导航  ", "Enter" => ":确认  ", "Space" => ":选择/切换  ", "Esc" => ":关闭"]
-            } else if app.status_panel.is_some() {
-                key!["←→" => ":切换Tab  ", "Esc" => ":关闭"]
-            } else if app.memory_panel.is_some() {
-                key!["↑↓" => ":选择  ", "Enter" => ":编辑  ", "Esc" => ":关闭"]
-            } else if app.plugin_panel.is_some() {
-                let panel = app.plugin_panel.as_ref().unwrap();
-                use crate::app::plugin_panel::PluginPanelView;
-                if panel.confirm_delete.is_some() {
-                    key!["Enter" => ":确认卸载  ", "其他键" => ":取消"]
-                } else if panel.marketplace_confirm_delete.is_some() {
-                    key!["Enter" => ":确认删除  ", "Esc" => ":取消"]
-                } else if panel.add_marketplace_active {
-                    key!["Enter" => ":添加  ", "Esc" => ":取消"]
-                } else if panel.discover_searching {
-                    key!["Esc/↑↓" => ":退出搜索  ", "←→" => ":Tab  ", "Enter" => ":安装  ", "Backspace" => ":删除"]
-                } else if panel.discover_detail_index.is_some() {
-                    key!["↑↓" => ":导航  ", "Enter" => ":执行  ", "Esc" => ":返回列表"]
-                } else if panel.detail_index.is_some() {
-                    key!["↑↓" => ":导航  ", "Enter" => ":执行  ", "Esc" => ":返回列表"]
-                } else {
-                    match panel.view {
-                        PluginPanelView::Discover => {
-                            key!["↑↓" => ":选择  ", "输入" => ":搜索  ", "Enter" => ":安装  ", "←→/Tab" => ":Tab  ", "Esc" => ":关闭"]
-                        }
-                        PluginPanelView::Marketplaces => {
-                            key!["↑↓" => ":选择  ", "Enter" => ":添加/更新  ", "Backspace" => ":移除  ", "←→/Tab" => ":Tab  ", "Esc" => ":关闭"]
-                        }
-                        _ => {
-                            key!["↑↓" => ":导航  ", "Space" => ":切换  ", "Enter" => ":详情  ", "←→/Tab" => ":Tab  ", "Esc" => ":关闭"]
-                        }
-                    }
-                }
-            } else if let Some(browser) = &app.sessions[app.active].core.thread_browser {
-                if browser.confirm_delete {
-                    key!["Enter" => ":确认  ", "其他键" => ":取消"]
-                } else {
-                    key!["↑↓" => ":移动  ", "Enter" => ":确认  ", "Ctrl+D" => ":删除  ", "Esc" => ":关闭  ", "/" => ":搜索"]
-                }
+            let hints = if app.sessions[app.active].core.session_panels.is_any_open() {
+                app.sessions[app.active]
+                    .core
+                    .session_panels
+                    .status_bar_hints()
+            } else if app.global_panels.is_any_open() {
+                app.global_panels.status_bar_hints()
             } else if app.sessions.len() > 1 {
-                key!["/" => "命令  ", "Ctrl+N/P" => ":切换Session  ", "Ctrl+W" => ":关闭"]
+                vec![
+                    ("/", "命令"),
+                    ("Ctrl+N/P", ":切换Session"),
+                    ("Ctrl+W", ":关闭"),
+                ]
             } else if app.quit_pending_since.is_some() {
-                key!["Ctrl+C" => ":关闭  ", "其他键" => ":取消"]
+                vec![("Ctrl+C", ":关闭"), ("其他键", ":取消")]
             } else {
-                key!["/" => "命令  ", "Alt+Enter" => ":换行"]
-            }
+                vec![("/", "命令"), ("Alt+Enter", ":换行")]
+            };
+            format_hints(&hints, key_style, desc_style)
         }
     };
 
     render_truncated_line(f, left_spans, right_spans, area);
+}
+
+/// 将 (key, desc) 对列表格式化为 Span 列表
+fn format_hints(
+    hints: &[(&'static str, &'static str)],
+    key_style: Style,
+    desc_style: Style,
+) -> Vec<Span<'static>> {
+    let mut spans: Vec<Span> = Vec::new();
+    for (key, desc) in hints {
+        spans.push(Span::styled(format!(" {} ", key), key_style));
+        spans.push(Span::styled(format!(":{} ", desc), desc_style));
+    }
+    spans
 }
 
 /// 渲染一行 spans，右侧右对齐，超出宽度时截断右侧

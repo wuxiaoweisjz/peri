@@ -7,18 +7,13 @@ use ratatui::{
 
 use perihelion_widgets::{BorderedPanel, ScrollState, ScrollableArea};
 
+use crate::app::agent_panel::AgentPanel;
 use crate::app::App;
 use crate::ui::main_ui::highlight_line_spans;
 use crate::ui::theme;
 
 /// /agents 面板渲染（底部展开区）
-pub(crate) fn render_agent_panel(f: &mut Frame, app: &mut App, area: Rect) {
-    // 先克隆面板数据，避免 immutable → mutable borrow 冲突
-    let panel = app.sessions[app.active].core.agent_panel.clone();
-    let Some(panel) = panel else {
-        return;
-    };
-
+pub(crate) fn render_agent_panel(f: &mut Frame, panel: &AgentPanel, app: &mut App, area: Rect) {
     let agent_count = panel.agents.len();
     let popup_area = area;
 
@@ -177,7 +172,15 @@ mod tests {
 
     async fn render_headless_agent_empty() -> (App, crate::ui::headless::HeadlessHandle) {
         let (mut app, mut handle) = App::new_headless(120, 30).await;
-        app.sessions[app.active].core.agent_panel = Some(AgentPanel::new(vec![], None));
+        let panel = AgentPanel::new(vec![], None);
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Agent(panel.clone()));
+        app.sessions[app.active]
+            .core
+            .session_panels
+            .open(crate::app::panel_manager::PanelState::Agent(panel));
         handle
             .terminal
             .draw(|f| crate::ui::main_ui::render(f, &mut app))

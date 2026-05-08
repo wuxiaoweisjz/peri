@@ -6,7 +6,8 @@ use ratatui::crossterm::event::{
 use std::time::Duration;
 use tui_textarea::{Input, Key};
 
-use crate::app::model_panel::{AliasTab, ROW_EFFORT, ROW_HAIKU, ROW_OPUS, ROW_SONNET};
+use crate::app::panel_manager::{EventResult, PanelContext, PanelKind};
+use crate::app::plugin_panel::PluginPanel;
 use crate::app::{App, MessageViewModel, PendingAttachment};
 use crate::ui::render_thread::RenderEvent;
 use rust_create_agent::messages::BaseMessage;
@@ -218,87 +219,118 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
-            // Thread 浏览面板优先处理
-            if app.sessions[app.active].core.thread_browser.is_some() {
-                handle_thread_browser(app, input);
-                return Ok(Some(Action::Redraw));
-            }
+            // ─── PanelManager 分发 ─────────────────────────────────────────────
+            {
+                // Session 面板：Model, Agent, Hooks, Login, Config, ThreadBrowser
+                let session_kind = app.sessions[app.active].core.session_panels.active_kind();
+                if matches!(
+                    session_kind,
+                    Some(PanelKind::Model)
+                        | Some(PanelKind::Agent)
+                        | Some(PanelKind::Hooks)
+                        | Some(PanelKind::Login)
+                        | Some(PanelKind::Config)
+                        | Some(PanelKind::ThreadBrowser)
+                ) {
+                    let _kind = session_kind.unwrap();
+                    let active_idx = app.active;
+                    // 临时取出 PanelManager 避免与 PanelContext 的 sessions 借用冲突
+                    let mut pm = std::mem::replace(
+                        &mut app.sessions[active_idx].core.session_panels,
+                        crate::app::PanelManager::new(),
+                    );
+                    let mut ctx = PanelContext {
+                        sessions: &mut app.sessions,
+                        active: active_idx,
+                        cwd: app.cwd.clone(),
+                        zen_config: &mut app.zen_config,
+                        config_path_override: app.config_path_override.clone(),
+                        claude_settings_override: app.claude_settings_override.as_ref(),
+                        provider_name: &mut app.provider_name,
+                        model_name: &mut app.model_name,
+                        mcp_pool: &mut app.mcp_pool,
+                        cron: &mut app.cron,
+                        plugin_data: &mut app.plugin_data,
+                        bg_event_tx: &app.bg_event_tx,
+                        thread_store: &app.thread_store,
+                    };
+                    let result = pm.dispatch_key(input, &mut ctx);
+                    drop(ctx);
+                    match result {
+                        EventResult::ClosePanel => {
+                            pm.close();
+                            app.sessions[active_idx].core.panel_selection.clear();
+                            app.sessions[active_idx].core.panel_area = None;
+                        }
+                        EventResult::OpenThread(thread_id) => {
+                            pm.close();
+                            app.sessions[active_idx].core.panel_selection.clear();
+                            app.sessions[active_idx].core.panel_area = None;
+                            app.sessions[active_idx].core.session_panels = pm;
+                            app.open_thread_with_feedback(thread_id);
+                            return Ok(Some(Action::Redraw));
+                        }
+                        _ => {}
+                    }
+                    // 放回 PanelManager
+                    app.sessions[active_idx].core.session_panels = pm;
+                    return Ok(Some(Action::Redraw));
+                }
 
-            // CronPanel 优先处理
-            if app.cron.cron_panel.is_some() {
-                handle_cron_panel(app, input);
-                return Ok(Some(Action::Redraw));
+                // Global 面板：Status, Memory, Mcp, Cron, Plugin
+                let global_kind = app.global_panels.active_kind();
+                if matches!(
+                    global_kind,
+                    Some(PanelKind::Status)
+                        | Some(PanelKind::Memory)
+                        | Some(PanelKind::Mcp)
+                        | Some(PanelKind::Cron)
+                        | Some(PanelKind::Plugin)
+                ) {
+                    let active_idx = app.active;
+                    let mut pm =
+                        std::mem::replace(&mut app.global_panels, crate::app::PanelManager::new());
+                    let mut ctx = PanelContext {
+                        sessions: &mut app.sessions,
+                        active: active_idx,
+                        cwd: app.cwd.clone(),
+                        zen_config: &mut app.zen_config,
+                        config_path_override: app.config_path_override.clone(),
+                        claude_settings_override: app.claude_settings_override.as_ref(),
+                        provider_name: &mut app.provider_name,
+                        model_name: &mut app.model_name,
+                        mcp_pool: &mut app.mcp_pool,
+                        cron: &mut app.cron,
+                        plugin_data: &mut app.plugin_data,
+                        bg_event_tx: &app.bg_event_tx,
+                        thread_store: &app.thread_store,
+                    };
+                    let result = pm.dispatch_key(input, &mut ctx);
+                    drop(ctx);
+                    match result {
+                        EventResult::ClosePanel => {
+                            pm.close();
+                            app.sessions[active_idx].core.panel_selection.clear();
+                            app.sessions[active_idx].core.panel_area = None;
+                        }
+                        EventResult::OpenPanel(open_kind) if open_kind == PanelKind::Memory => {
+                            app.global_panels = pm;
+                            if let Err(e) = app.memory_panel_open_editor() {
+                                tracing::error!("Failed to open editor: {}", e);
+                            }
+                            return Ok(Some(Action::Redraw));
+                        }
+                        _ => {}
+                    }
+                    // 放回 PanelManager
+                    app.global_panels = pm;
+                    return Ok(Some(Action::Redraw));
+                }
             }
 
             // OAuth 弹窗优先处理
             if app.oauth_prompt.is_some() {
                 handle_oauth_prompt(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // MCP 面板优先处理
-            if app.mcp_panel.is_some() {
-                handle_mcp_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // 插件面板优先处理
-            if app.plugin_panel.is_some() {
-                handle_plugin_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // /agents 面板优先处理
-            if app.sessions[app.active].core.agent_panel.is_some() {
-                handle_agent_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // /hooks 面板优先处理
-            if app.sessions[app.active].core.hooks_panel.is_some() {
-                handle_hooks_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // /login 面板优先处理
-            if app.sessions[app.active].core.login_panel.is_some() {
-                handle_login_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // /model 面板优先处理
-            if app.sessions[app.active].core.model_panel.is_some() {
-                handle_model_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // /config 配置面板优先处理
-            if app.sessions[app.active].core.config_panel.is_some() {
-                handle_config_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // /cost & /context 状态面板优先处理
-            if app.status_panel.is_some() {
-                handle_status_panel(app, input);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // /memory 面板优先处理
-            if app.memory_panel.is_some() {
-                handle_memory_panel(app, &input);
-                // Enter 时打开编辑器（避免借用冲突，Enter 在 handle_memory_panel 中不处理）
-                if matches!(
-                    input,
-                    Input {
-                        key: Key::Enter,
-                        ..
-                    }
-                ) {
-                    if let Err(e) = app.memory_panel_open_editor() {
-                        tracing::error!("Failed to open editor: {}", e);
-                    }
-                }
                 return Ok(Some(Action::Redraw));
             }
 
@@ -701,72 +733,76 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                 return Ok(Some(Action::Redraw));
             }
 
-            // login_panel 打开时粘贴到面板当前字段
-            if app.sessions[app.active].core.login_panel.is_some() {
-                app.sessions[app.active]
-                    .core
-                    .login_panel
-                    .as_mut()
-                    .unwrap()
-                    .paste_text(&text);
-                return Ok(Some(Action::Redraw));
-            }
-
-            // model_panel 打开时拦截粘贴（面板无文本输入字段）
-            if app.sessions[app.active].core.model_panel.is_some() {
-                return Ok(Some(Action::Redraw));
-            }
-
-            // config_panel 打开时粘贴到当前编辑字段
-            if app.sessions[app.active].core.config_panel.is_some() {
-                if let Some(panel) = app.sessions[app.active].core.config_panel.as_mut() {
-                    panel.paste_text(&text);
-                }
-                return Ok(Some(Action::Redraw));
-            }
-
-            // plugin_panel 的 Add Marketplace 输入框处理粘贴
-            if app.plugin_panel.is_some() {
-                let is_adding = app
-                    .plugin_panel
-                    .as_ref()
-                    .is_some_and(|p| p.add_marketplace_active);
-                let is_discover_searching = app
-                    .plugin_panel
-                    .as_ref()
-                    .is_some_and(|p| p.discover_searching);
-
-                if is_adding {
-                    // 粘贴到添加 marketplace 输入框
-                    for ch in text.chars() {
-                        app.marketplace_add_input(ch);
-                    }
-                    return Ok(Some(Action::Redraw));
-                }
-
-                if is_discover_searching {
-                    // 粘贴到搜索框
-                    for ch in text.chars() {
-                        app.discover_search_input(ch);
-                    }
-                    return Ok(Some(Action::Redraw));
-                }
-
-                // 其他 plugin_panel 状态拦截粘贴
-                return Ok(Some(Action::Redraw));
-            }
-
-            // thread_browser / agent_panel / cron_panel / hooks_panel 打开时拦截粘贴，
-            // 防止文本进入后台 textarea（这些面板无文本输入字段）
-            if app.sessions[app.active].core.thread_browser.is_some()
-                || app.sessions[app.active].core.agent_panel.is_some()
-                || app.sessions[app.active].core.hooks_panel.is_some()
-                || app.cron.cron_panel.is_some()
-                || app.mcp_panel.is_some()
-                || app.status_panel.is_some()
-                || app.memory_panel.is_some()
+            // ─── PanelManager 粘贴分发（已迁移的面板）────────────────
             {
-                return Ok(Some(Action::Redraw));
+                // Session 面板：Model, Agent, Hooks, Login, Config, ThreadBrowser
+                let session_kind = app.sessions[app.active].core.session_panels.active_kind();
+                if matches!(
+                    session_kind,
+                    Some(PanelKind::Model)
+                        | Some(PanelKind::Agent)
+                        | Some(PanelKind::Hooks)
+                        | Some(PanelKind::Login)
+                        | Some(PanelKind::Config)
+                        | Some(PanelKind::ThreadBrowser)
+                ) {
+                    let active_idx = app.active;
+                    let mut pm = std::mem::replace(
+                        &mut app.sessions[active_idx].core.session_panels,
+                        crate::app::PanelManager::new(),
+                    );
+                    let mut ctx = PanelContext {
+                        sessions: &mut app.sessions,
+                        active: active_idx,
+                        cwd: app.cwd.clone(),
+                        zen_config: &mut app.zen_config,
+                        config_path_override: app.config_path_override.clone(),
+                        claude_settings_override: app.claude_settings_override.as_ref(),
+                        provider_name: &mut app.provider_name,
+                        model_name: &mut app.model_name,
+                        mcp_pool: &mut app.mcp_pool,
+                        cron: &mut app.cron,
+                        plugin_data: &mut app.plugin_data,
+                        bg_event_tx: &app.bg_event_tx,
+                        thread_store: &app.thread_store,
+                    };
+                    pm.dispatch_paste(&text, &mut ctx);
+                    app.sessions[active_idx].core.session_panels = pm;
+                    return Ok(Some(Action::Redraw));
+                }
+
+                // Global 面板：Status, Memory, Mcp, Cron, Plugin
+                let global_kind = app.global_panels.active_kind();
+                if matches!(
+                    global_kind,
+                    Some(PanelKind::Status)
+                        | Some(PanelKind::Memory)
+                        | Some(PanelKind::Mcp)
+                        | Some(PanelKind::Cron)
+                        | Some(PanelKind::Plugin)
+                ) {
+                    let active_idx = app.active;
+                    let mut pm =
+                        std::mem::replace(&mut app.global_panels, crate::app::PanelManager::new());
+                    let mut ctx = PanelContext {
+                        sessions: &mut app.sessions,
+                        active: active_idx,
+                        cwd: app.cwd.clone(),
+                        zen_config: &mut app.zen_config,
+                        config_path_override: app.config_path_override.clone(),
+                        claude_settings_override: app.claude_settings_override.as_ref(),
+                        provider_name: &mut app.provider_name,
+                        model_name: &mut app.model_name,
+                        mcp_pool: &mut app.mcp_pool,
+                        cron: &mut app.cron,
+                        plugin_data: &mut app.plugin_data,
+                        bg_event_tx: &app.bg_event_tx,
+                        thread_store: &app.thread_store,
+                    };
+                    pm.dispatch_paste(&text, &mut ctx);
+                    app.global_panels = pm;
+                    return Ok(Some(Action::Redraw));
+                }
             }
 
             // 其他情况粘贴到 textarea
@@ -780,7 +816,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
-                        && app.mcp_panel.is_some()
+                        && app.global_panels.is_active(PanelKind::Mcp)
                     {
                         app.mcp_panel_scroll_up(3);
                         return Ok(Some(Action::Redraw));
@@ -789,9 +825,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
-                        && app.plugin_panel.is_some()
+                        && app.global_panels.is_active(PanelKind::Plugin)
                     {
-                        if let Some(panel) = &mut app.plugin_panel {
+                        if let Some(panel) = &mut app.global_panels.get_mut::<PluginPanel>() {
                             panel.scroll_offset = panel.scroll_offset.saturating_sub(3);
                         }
                         return Ok(Some(Action::Redraw));
@@ -805,7 +841,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
-                        && app.mcp_panel.is_some()
+                        && app.global_panels.is_active(PanelKind::Mcp)
                     {
                         app.mcp_panel_scroll_down(3);
                         return Ok(Some(Action::Redraw));
@@ -814,9 +850,9 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                         && mouse.row < area.y + area.height
                         && mouse.column >= area.x
                         && mouse.column < area.x + area.width
-                        && app.plugin_panel.is_some()
+                        && app.global_panels.is_active(PanelKind::Plugin)
                     {
-                        if let Some(panel) = &mut app.plugin_panel {
+                        if let Some(panel) = &mut app.global_panels.get_mut::<PluginPanel>() {
                             let max = panel.current_list_len() as u16;
                             panel.scroll_offset = (panel.scroll_offset + 3).min(max);
                         }
@@ -980,1465 +1016,6 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
     }
 
     Ok(Some(Action::Redraw))
-}
-
-// ─── Thread 浏览面板键盘处理 ──────────────────────────────────────────────────
-
-fn handle_thread_browser(app: &mut App, input: Input) {
-    // 确认删除模式下只处理 Enter（确认）和其他键（取消）
-    if app.sessions[app.active]
-        .core
-        .thread_browser
-        .as_ref()
-        .is_some_and(|b| b.confirm_delete)
-    {
-        match input {
-            Input {
-                key: Key::Enter, ..
-            } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.confirm_delete = false;
-                    if let Some(title) = b.delete_selected() {
-                        app.sessions[app.active]
-                            .core
-                            .view_messages
-                            .push(MessageViewModel::system(format!("已删除对话: {}", title)));
-                    }
-                }
-            }
-            _ => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.confirm_delete = false;
-                }
-            }
-        }
-        return;
-    }
-
-    // 搜索框聚焦时的输入处理
-    let search_focused = app.sessions[app.active]
-        .core
-        .thread_browser
-        .as_ref()
-        .is_some_and(|b| b.search_focused);
-
-    if search_focused {
-        match input {
-            Input {
-                key: Key::Char('c'),
-                ctrl: true,
-                ..
-            } => {}
-            Input { key: Key::Esc, .. } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    if !b.search_query.value().is_empty() {
-                        // 清空搜索
-                        b.search_query.set_value(String::new());
-                        b.refresh_filter();
-                    } else {
-                        // 关闭面板
-                        app.sessions[app.active].core.thread_browser = None;
-                        app.sessions[app.active].core.panel_selection.clear();
-                        app.sessions[app.active].core.panel_area = None;
-                    }
-                }
-            }
-            Input {
-                key: Key::Char('v'),
-                ctrl: true,
-                ..
-            } => {
-                if let Ok(text) = arboard::Clipboard::new().and_then(|mut cb| cb.get_text()) {
-                    if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                        b.search_query.paste(&text);
-                        b.refresh_filter();
-                    }
-                }
-            }
-            Input {
-                key: Key::Char(c), ..
-            } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_query.insert(c);
-                    b.refresh_filter();
-                }
-            }
-            Input {
-                key: Key::Backspace,
-                ..
-            } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_query.backspace();
-                    b.refresh_filter();
-                }
-            }
-            Input {
-                key: Key::Delete, ..
-            } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_query.delete();
-                    b.refresh_filter();
-                }
-            }
-            Input { key: Key::Left, .. } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_query.cursor_left();
-                }
-            }
-            Input {
-                key: Key::Right, ..
-            } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_query.cursor_right();
-                }
-            }
-            Input { key: Key::Home, .. } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_query.cursor_home();
-                }
-            }
-            Input { key: Key::End, .. } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_query.cursor_end();
-                }
-            }
-            // ↓ / Tab 切换到列表模式
-            Input { key: Key::Down, .. } | Input { key: Key::Tab, .. } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    b.search_focused = false;
-                }
-            }
-            // Enter：打开选中的 thread
-            Input {
-                key: Key::Enter, ..
-            } => {
-                if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                    if let Some(id) = b.selected_id().cloned() {
-                        app.open_thread_with_feedback(id);
-                    }
-                }
-            }
-            _ => {}
-        }
-        return;
-    }
-
-    // 列表模式
-    match input {
-        Input {
-            key: Key::Char('c'),
-            ctrl: true,
-            ..
-        } => {}
-        Input { key: Key::Esc, .. } => {
-            // Esc 关闭面板
-            app.sessions[app.active].core.thread_browser = None;
-            app.sessions[app.active].core.panel_selection.clear();
-            app.sessions[app.active].core.panel_area = None;
-        }
-        Input { key: Key::Up, .. } => {
-            let visible = app.sessions[app.active]
-                .core
-                .panel_area
-                .map(|a| a.height.saturating_sub(1))
-                .unwrap_or(10);
-            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                b.move_cursor(-1);
-                // 每个 item 占 3 视觉行（标题 + 元数据 + 空行）
-                let visual_row = b.cursor as u16 * 3;
-                // panel_area 已经是 list_area（不含搜索框），减去快捷键 1 行
-                b.scroll_offset =
-                    crate::app::ensure_cursor_visible(visual_row, b.scroll_offset, visible);
-            }
-        }
-        Input { key: Key::Down, .. } => {
-            let visible = app.sessions[app.active]
-                .core
-                .panel_area
-                .map(|a| a.height.saturating_sub(1))
-                .unwrap_or(10);
-            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                b.move_cursor(1);
-                let visual_row = b.cursor as u16 * 3;
-                b.scroll_offset =
-                    crate::app::ensure_cursor_visible(visual_row, b.scroll_offset, visible);
-            }
-        }
-        Input {
-            key: Key::Enter, ..
-        } => {
-            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                if let Some(id) = b.selected_id().cloned() {
-                    app.open_thread_with_feedback(id);
-                }
-            }
-        }
-        Input {
-            key: Key::Char('d'),
-            ctrl: true,
-            ..
-        } => {
-            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                if b.total() > 0 {
-                    b.confirm_delete = true;
-                }
-            }
-        }
-        // / 或 Tab 切换到搜索框
-        Input {
-            key: Key::Char('/'),
-            ..
-        }
-        | Input { key: Key::Tab, .. } => {
-            if let Some(b) = app.sessions[app.active].core.thread_browser.as_mut() {
-                b.search_focused = true;
-            }
-        }
-        _ => {}
-    }
-}
-
-// ─── /agents 面板键盘处理 ──────────────────────────────────────────────────────
-
-fn handle_agent_panel(app: &mut App, input: Input) {
-    match input {
-        Input {
-            key: Key::Char('c'),
-            ctrl: true,
-            ..
-        } => {}
-        Input { key: Key::Esc, .. } => {
-            app.close_agent_panel();
-            app.sessions[app.active].core.panel_selection.clear();
-            app.sessions[app.active].core.panel_area = None;
-        }
-        Input { key: Key::Up, .. } => {
-            app.agent_panel_move_up();
-        }
-        Input { key: Key::Down, .. } => {
-            app.agent_panel_move_down();
-        }
-        Input {
-            key: Key::Enter, ..
-        } => {
-            // Enter 确认选择当前 agent（或取消选择）
-            app.agent_panel_confirm();
-        }
-        _ => {}
-    }
-}
-
-// ─── /hooks 面板键盘处理 ──────────────────────────────────────────────────────
-
-fn handle_hooks_panel(app: &mut App, input: Input) {
-    match input {
-        Input {
-            key: Key::Char('c'),
-            ctrl: true,
-            ..
-        } => {}
-        Input { key: Key::Esc, .. } => {
-            app.close_hooks_panel();
-            app.sessions[app.active].core.panel_selection.clear();
-            app.sessions[app.active].core.panel_area = None;
-        }
-        Input { key: Key::Up, .. } => {
-            app.hooks_panel_move_up();
-        }
-        Input { key: Key::Down, .. } => {
-            app.hooks_panel_move_down();
-        }
-        _ => {}
-    }
-}
-
-// ─── /login 面板键盘处理 ──────────────────────────────────────────────────────
-
-fn handle_login_panel(app: &mut App, input: Input) {
-    use crate::app::login_panel::LoginPanelMode;
-
-    let mode = match app.sessions[app.active].core.login_panel.as_ref() {
-        Some(p) => p.mode.clone(),
-        None => return,
-    };
-
-    match mode {
-        LoginPanelMode::Browse => match input {
-            Input { key: Key::Esc, .. } => {
-                app.close_login_panel();
-            }
-            Input { key: Key::Up, .. } => {
-                app.sessions[app.active]
-                    .core
-                    .login_panel
-                    .as_mut()
-                    .unwrap()
-                    .move_cursor(-1);
-            }
-            Input { key: Key::Down, .. } => {
-                app.sessions[app.active]
-                    .core
-                    .login_panel
-                    .as_mut()
-                    .unwrap()
-                    .move_cursor(1);
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                app.login_panel_select_provider();
-            }
-            Input {
-                key: Key::Tab,
-                shift: false,
-                ..
-            } => {
-                app.sessions[app.active]
-                    .core
-                    .login_panel
-                    .as_mut()
-                    .unwrap()
-                    .enter_edit();
-            }
-            Input {
-                key: Key::Char('n'),
-                ctrl: true,
-                ..
-            } => {
-                app.sessions[app.active]
-                    .core
-                    .login_panel
-                    .as_mut()
-                    .unwrap()
-                    .enter_new();
-            }
-            Input {
-                key: Key::Char('d'),
-                ctrl: true,
-                ..
-            } => {
-                app.sessions[app.active]
-                    .core
-                    .login_panel
-                    .as_mut()
-                    .unwrap()
-                    .request_delete();
-            }
-            _ => {}
-        },
-        LoginPanelMode::Edit | LoginPanelMode::New => {
-            let is_type_field = app.sessions[app.active]
-                .core
-                .login_panel
-                .as_ref()
-                .unwrap()
-                .edit_field
-                == crate::app::login_panel::LoginEditField::Type;
-
-            match input {
-                Input { key: Key::Esc, .. } => {
-                    app.sessions[app.active]
-                        .core
-                        .login_panel
-                        .as_mut()
-                        .unwrap()
-                        .mode = LoginPanelMode::Browse;
-                }
-                Input {
-                    key: Key::Char('v'),
-                    ctrl: true,
-                    ..
-                } => {
-                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                        if let Ok(text) = clipboard.get_text() {
-                            app.sessions[app.active]
-                                .core
-                                .login_panel
-                                .as_mut()
-                                .unwrap()
-                                .paste_text(&text);
-                        }
-                    }
-                }
-                Input { key: Key::Up, .. } => {
-                    app.sessions[app.active]
-                        .core
-                        .login_panel
-                        .as_mut()
-                        .unwrap()
-                        .field_prev();
-                }
-                Input { key: Key::Down, .. } => {
-                    app.sessions[app.active]
-                        .core
-                        .login_panel
-                        .as_mut()
-                        .unwrap()
-                        .field_next();
-                }
-                Input {
-                    key: Key::Tab,
-                    shift: false,
-                    ..
-                } => {
-                    app.sessions[app.active]
-                        .core
-                        .login_panel
-                        .as_mut()
-                        .unwrap()
-                        .field_next();
-                }
-                Input {
-                    key: Key::Tab,
-                    shift: true,
-                    ..
-                } => {
-                    app.sessions[app.active]
-                        .core
-                        .login_panel
-                        .as_mut()
-                        .unwrap()
-                        .field_prev();
-                }
-                Input { key: Key::Left, .. }
-                | Input {
-                    key: Key::Right, ..
-                } if is_type_field => {
-                    app.sessions[app.active]
-                        .core
-                        .login_panel
-                        .as_mut()
-                        .unwrap()
-                        .cycle_type();
-                }
-                Input {
-                    key: Key::Char(' '),
-                    ..
-                } => {
-                    if is_type_field {
-                        app.sessions[app.active]
-                            .core
-                            .login_panel
-                            .as_mut()
-                            .unwrap()
-                            .cycle_type();
-                    } else if let Some((buf, cursor)) = app.sessions[app.active]
-                        .core
-                        .login_panel
-                        .as_mut()
-                        .unwrap()
-                        .active_field()
-                    {
-                        crate::app::handle_edit_key(
-                            buf,
-                            cursor,
-                            Input {
-                                key: Key::Char(' '),
-                                ctrl: false,
-                                alt: false,
-                                shift: false,
-                            },
-                        );
-                    }
-                }
-                Input {
-                    key: Key::Enter, ..
-                } => {
-                    app.login_panel_apply_edit();
-                }
-                _ => {
-                    if !is_type_field {
-                        if let Some((buf, cursor)) = app.sessions[app.active]
-                            .core
-                            .login_panel
-                            .as_mut()
-                            .unwrap()
-                            .active_field()
-                        {
-                            crate::app::handle_edit_key(buf, cursor, input);
-                        }
-                    }
-                }
-            }
-        }
-        LoginPanelMode::ConfirmDelete => match input {
-            Input {
-                key: Key::Enter, ..
-            } => {
-                app.login_panel_confirm_delete();
-            }
-            Input { key: Key::Esc, .. } => {
-                app.sessions[app.active]
-                    .core
-                    .login_panel
-                    .as_mut()
-                    .unwrap()
-                    .cancel_delete();
-            }
-            _ => {}
-        },
-    }
-}
-
-// ─── /model 面板键盘处理 ──────────────────────────────────────────────────────
-
-fn handle_model_panel(app: &mut App, input: Input) {
-    match input {
-        Input { key: Key::Esc, .. } => {
-            app.close_model_panel();
-        }
-        Input { key: Key::Up, .. } => {
-            app.sessions[app.active]
-                .core
-                .model_panel
-                .as_mut()
-                .unwrap()
-                .move_cursor(-1);
-        }
-        Input { key: Key::Down, .. } => {
-            app.sessions[app.active]
-                .core
-                .model_panel
-                .as_mut()
-                .unwrap()
-                .move_cursor(1);
-        }
-        Input {
-            key: Key::Char(' ') | Key::Enter,
-            ..
-        } => {
-            let cursor = app.sessions[app.active]
-                .core
-                .model_panel
-                .as_ref()
-                .unwrap()
-                .cursor;
-            match cursor {
-                ROW_OPUS => {
-                    app.sessions[app.active]
-                        .core
-                        .model_panel
-                        .as_mut()
-                        .unwrap()
-                        .active_tab = AliasTab::Opus;
-                    app.model_panel_confirm();
-                }
-                ROW_SONNET => {
-                    app.sessions[app.active]
-                        .core
-                        .model_panel
-                        .as_mut()
-                        .unwrap()
-                        .active_tab = AliasTab::Sonnet;
-                    app.model_panel_confirm();
-                }
-                ROW_HAIKU => {
-                    app.sessions[app.active]
-                        .core
-                        .model_panel
-                        .as_mut()
-                        .unwrap()
-                        .active_tab = AliasTab::Haiku;
-                    app.model_panel_confirm();
-                }
-                ROW_EFFORT => {
-                    app.sessions[app.active]
-                        .core
-                        .model_panel
-                        .as_mut()
-                        .unwrap()
-                        .cycle_effort(false);
-                }
-                _ => {}
-            }
-        }
-        Input { key: Key::Left, .. } => {
-            app.sessions[app.active]
-                .core
-                .model_panel
-                .as_mut()
-                .unwrap()
-                .cycle_effort(true);
-        }
-        Input {
-            key: Key::Right, ..
-        } => {
-            app.sessions[app.active]
-                .core
-                .model_panel
-                .as_mut()
-                .unwrap()
-                .cycle_effort(false);
-        }
-        _ => {}
-    }
-}
-
-fn handle_config_panel(app: &mut App, input: Input) {
-    use crate::app::config_panel::{ConfigEditField, ConfigPanel, ConfigPanelMode};
-    let Some(panel) = app.sessions[app.active].core.config_panel.as_mut() else {
-        return;
-    };
-    match panel.mode {
-        ConfigPanelMode::Browse => match input {
-            Input { key: Key::Up, .. } => {
-                if panel.cursor > 0 {
-                    panel.cursor -= 1;
-                } else {
-                    panel.cursor = ConfigPanel::field_count() - 1;
-                }
-            }
-            Input { key: Key::Down, .. } => {
-                panel.cursor = (panel.cursor + 1) % ConfigPanel::field_count();
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                panel.enter_edit();
-            }
-            Input { key: Key::Esc, .. } => {
-                app.sessions[app.active].core.config_panel = None;
-            }
-            _ => {}
-        },
-        ConfigPanelMode::Edit => match input {
-            Input { key: Key::Esc, .. } => {
-                panel.mode = ConfigPanelMode::Browse;
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                app.config_panel_apply();
-            }
-            Input { key: Key::Up, .. } => {
-                panel.field_prev();
-            }
-            Input { key: Key::Down, .. } => {
-                panel.field_next();
-            }
-            Input {
-                key: Key::Char(' '),
-                ctrl: false,
-                ..
-            } => match panel.edit_field {
-                ConfigEditField::Autocompact => panel.cycle_autocompact(),
-                ConfigEditField::Proactiveness => panel.cycle_proactiveness(),
-                _ => {
-                    if let Some((buf, cursor)) = panel.active_field() {
-                        crate::app::handle_edit_key(
-                            buf,
-                            cursor,
-                            Input {
-                                key: Key::Char(' '),
-                                ctrl: false,
-                                alt: false,
-                                shift: false,
-                            },
-                        );
-                    }
-                }
-            },
-            Input {
-                key: Key::Left,
-                ctrl: false,
-                ..
-            }
-            | Input {
-                key: Key::Right,
-                ctrl: false,
-                ..
-            } => match panel.edit_field {
-                ConfigEditField::Autocompact => panel.cycle_autocompact(),
-                ConfigEditField::Proactiveness => panel.cycle_proactiveness(),
-                _ => {
-                    if let Some((buf, cursor)) = panel.active_field() {
-                        crate::app::handle_edit_key(buf, cursor, input);
-                    }
-                }
-            },
-            _ => {
-                if let Some((buf, cursor)) = panel.active_field() {
-                    crate::app::handle_edit_key(buf, cursor, input);
-                }
-            }
-        },
-    }
-}
-
-fn handle_status_panel(app: &mut App, input: Input) {
-    match input {
-        Input { key: Key::Esc, .. } => {
-            app.status_panel = None;
-        }
-        Input { key: Key::Left, .. } => {
-            if let Some(panel) = &mut app.status_panel {
-                panel.tab.prev();
-            }
-        }
-        Input {
-            key: Key::Right, ..
-        } => {
-            if let Some(panel) = &mut app.status_panel {
-                panel.tab.next();
-            }
-        }
-        _ => {}
-    }
-}
-
-fn handle_memory_panel(app: &mut App, input: &Input) {
-    let Some(panel) = app.memory_panel.as_mut() else {
-        return;
-    };
-    match *input {
-        Input { key: Key::Up, .. } => {
-            panel.move_cursor_up();
-        }
-        Input { key: Key::Down, .. } => {
-            panel.move_cursor_down();
-        }
-        Input {
-            key: Key::Enter, ..
-        } => {
-            // 由调用方处理打开编辑器（避免借用冲突），此处不执行操作
-        }
-        Input { key: Key::Esc, .. } => {
-            app.memory_panel = None;
-        }
-        _ => {}
-    }
-}
-
-fn handle_cron_panel(app: &mut App, input: Input) {
-    // 确认删除模式下只处理 Enter（确认）和 Esc（取消）
-    if app
-        .cron
-        .cron_panel
-        .as_ref()
-        .is_some_and(|p| p.confirm_delete)
-    {
-        match input {
-            Input {
-                key: Key::Enter, ..
-            } => {
-                app.cron_panel_confirm_delete();
-            }
-            _ => {
-                app.cron_panel_cancel_delete();
-            }
-        }
-        return;
-    }
-
-    match input {
-        Input {
-            key: Key::Char('c'),
-            ctrl: true,
-            ..
-        } => {
-            // Ctrl+C 在面板中不退出，忽略
-        }
-        Input { key: Key::Up, .. } => {
-            app.cron_panel_move_up();
-        }
-        Input { key: Key::Down, .. } => {
-            app.cron_panel_move_down();
-        }
-        Input {
-            key: Key::Enter, ..
-        } => {
-            app.cron_panel_toggle();
-        }
-        Input { key: Key::Esc, .. } => {
-            app.cron_panel_close();
-            app.sessions[app.active].core.panel_selection.clear();
-            app.sessions[app.active].core.panel_area = None;
-        }
-        Input {
-            key: Key::Char('d'),
-            ctrl: true,
-            ..
-        } => {
-            app.cron_panel_request_delete();
-        }
-        _ => {}
-    }
-}
-
-fn handle_mcp_panel(app: &mut App, input: Input) {
-    // 确认删除模式下只处理 Enter（确认）和其他键（取消）
-    if app
-        .mcp_panel
-        .as_ref()
-        .is_some_and(|p| p.confirm_delete.is_some())
-    {
-        match input {
-            Input {
-                key: Key::Enter, ..
-            } => {
-                app.mcp_panel_confirm_delete();
-            }
-            _ => {
-                app.mcp_panel_cancel_delete();
-            }
-        }
-        return;
-    }
-
-    let is_server_list = app
-        .mcp_panel
-        .as_ref()
-        .is_none_or(|p| p.view.is_server_list());
-
-    match input {
-        Input {
-            key: Key::Char('c'),
-            ctrl: true,
-            ..
-        } => {
-            // Ctrl+C 在面板中不退出，忽略
-        }
-        Input { key: Key::Up, .. } => {
-            app.mcp_panel_move_up();
-        }
-        Input { key: Key::Down, .. } => {
-            app.mcp_panel_move_down();
-        }
-        Input {
-            key: Key::Enter, ..
-        } => {
-            app.mcp_panel_enter();
-        }
-        Input { key: Key::Esc, .. } => {
-            if is_server_list {
-                app.mcp_panel_close();
-                app.sessions[app.active].core.panel_selection.clear();
-                app.sessions[app.active].core.panel_area = None;
-            } else {
-                app.mcp_panel_back();
-            }
-        }
-        Input {
-            key: Key::Char('r'),
-            ctrl: true,
-            ..
-        } if is_server_list => {
-            app.mcp_panel_reconnect();
-        }
-        Input {
-            key: Key::Char('d'),
-            ctrl: true,
-            ..
-        } if is_server_list => {
-            app.mcp_panel_request_delete();
-        }
-        _ => {}
-    }
-}
-
-fn handle_plugin_panel(app: &mut App, input: Input) {
-    use crate::app::plugin_panel::PluginPanelView;
-
-    // 确认删除模式下只处理 Enter（确认）和其他键（取消）
-    if app
-        .plugin_panel
-        .as_ref()
-        .is_some_and(|p| p.confirm_delete.is_some())
-    {
-        match input {
-            Input {
-                key: Key::Enter, ..
-            } => {
-                // 获取要卸载的插件信息
-                let (plugin_id, project_path) = if let Some(panel) = &app.plugin_panel {
-                    if let Some(id) = panel.confirm_delete.clone() {
-                        let entry = panel.entries.iter().find(|e| e.id == id);
-                        let project_path = entry.and_then(|e| e.project_path.clone());
-                        (Some(id), project_path)
-                    } else {
-                        (None, None)
-                    }
-                } else {
-                    (None, None)
-                };
-
-                if let Some(plugin_id) = plugin_id {
-                    // 加入 uninstalling 集合（不立即从列表移除）
-                    if let Some(ref mut panel) = app.plugin_panel {
-                        panel.uninstalling.insert(plugin_id.clone());
-                    }
-                    // 关闭确认对话框
-                    app.plugin_panel_cancel_delete();
-
-                    // 异步执行卸载，传递正确的 project_dir
-                    let claude_dir = rust_agent_middlewares::plugin::claude_home();
-                    let tx = app.bg_event_tx.clone();
-                    let project_dir = project_path.map(std::path::PathBuf::from);
-                    tokio::spawn(async move {
-                        let result = rust_agent_middlewares::plugin::uninstall_plugin(
-                            &plugin_id,
-                            &claude_dir,
-                            project_dir.as_deref(),
-                        )
-                        .await;
-
-                        let success = result.is_ok();
-                        let message = if let Err(e) = result {
-                            format!("卸载失败: {e}")
-                        } else {
-                            "卸载成功".to_string()
-                        };
-
-                        let _ = tx.try_send(crate::app::AgentEvent::PluginActionCompleted {
-                            plugin_id,
-                            action: "uninstall".to_string(),
-                            success,
-                            message,
-                        });
-                    });
-                } else {
-                    // 没有找到插件信息，关闭对话框
-                    app.plugin_panel_cancel_delete();
-                }
-            }
-            _ => {
-                app.plugin_panel_cancel_delete();
-            }
-        }
-        return;
-    }
-
-    // 判断当前视图
-    let current_view = app
-        .plugin_panel
-        .as_ref()
-        .map(|p| p.view)
-        .unwrap_or(PluginPanelView::Installed);
-
-    // Discover 搜索模式
-    let is_searching = app
-        .plugin_panel
-        .as_ref()
-        .is_some_and(|p| p.discover_searching);
-    if is_searching {
-        match input {
-            Input {
-                key: Key::Char(c), ..
-            } => {
-                app.discover_search_input(c);
-            }
-            Input {
-                key: Key::Backspace,
-                ..
-            } => {
-                app.discover_search_backspace();
-            }
-            Input { key: Key::Up, .. } | Input { key: Key::Down, .. } => {
-                // 上下键退出搜索模式并移动光标
-                app.discover_exit_search();
-                if matches!(input.key, Key::Up) {
-                    app.discover_move_up();
-                } else {
-                    app.discover_move_down();
-                }
-            }
-            Input { key: Key::Left, .. }
-            | Input {
-                key: Key::Right, ..
-            } => {
-                // 左右键退出搜索模式并切换标签
-                app.discover_exit_search();
-                if matches!(input.key, Key::Right) {
-                    app.plugin_panel_tab();
-                } else {
-                    app.plugin_panel_shift_tab();
-                }
-            }
-            Input { key: Key::Esc, .. } => {
-                app.discover_exit_search();
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                // Enter 直接安装当前选中的插件
-                app.discover_exit_search();
-                handle_discover_install_current(app);
-            }
-            _ => {}
-        }
-        return;
-    }
-
-    // Discover 详情视图
-    let is_discover_detail = app
-        .plugin_panel
-        .as_ref()
-        .is_some_and(|p| p.discover_detail_index.is_some());
-    if is_discover_detail {
-        match input {
-            Input { key: Key::Up, .. } => {
-                app.discover_detail_up();
-            }
-            Input { key: Key::Down, .. } => {
-                app.discover_detail_down();
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                if let Some((name, marketplace, scope)) = app.discover_detail_action() {
-                    // 异步安装
-                    let claude_dir = dirs_next::home_dir()
-                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                        .join(".claude");
-                    let cache_dir = rust_agent_middlewares::plugin::marketplaces_cache_dir();
-                    let plugin_id = format!("{}@{}", name, marketplace);
-                    let project_dir = std::path::PathBuf::from(&app.cwd);
-                    // 标记安装中
-                    if let Some(panel) = &mut app.plugin_panel {
-                        panel.installing.insert(plugin_id.clone());
-                    }
-                    let tx = app.bg_event_tx.clone();
-                    tokio::spawn(async move {
-                        let result = rust_agent_middlewares::plugin::install_plugin(
-                            &name,
-                            &marketplace,
-                            scope,
-                            &cache_dir,
-                            &claude_dir,
-                            Some(&project_dir),
-                        )
-                        .await;
-                        let _ = tx.try_send(crate::app::AgentEvent::PluginActionCompleted {
-                            plugin_id: format!("{}@{}", name, marketplace),
-                            action: "install".to_string(),
-                            success: result.is_ok(),
-                            message: result
-                                .map(|_| String::new())
-                                .unwrap_or_else(|e| e.to_string()),
-                        });
-                    });
-                    // 退出详情页
-                    app.discover_exit_detail();
-                }
-            }
-            Input { key: Key::Esc, .. } => {
-                app.discover_exit_detail();
-            }
-            _ => {}
-        }
-        return;
-    }
-
-    // Installed 详情视图
-    let is_installed_detail = app
-        .plugin_panel
-        .as_ref()
-        .is_some_and(|p| p.detail_index.is_some());
-    if is_installed_detail {
-        match input {
-            Input { key: Key::Up, .. } => {
-                app.plugin_panel_detail_up();
-            }
-            Input { key: Key::Down, .. } => {
-                app.plugin_panel_detail_down();
-            }
-            Input {
-                key: Key::Enter, ..
-            } => {
-                app.plugin_panel_detail_action();
-            }
-            Input { key: Key::Esc, .. } => {
-                app.plugin_panel_exit_detail();
-            }
-            _ => {}
-        }
-        return;
-    }
-
-    // 列表视图 - 根据当前视图分发
-    match current_view {
-        PluginPanelView::Discover => {
-            match input {
-                // 左右箭头切换标签
-                Input {
-                    key: Key::Right, ..
-                } => {
-                    app.plugin_panel_tab();
-                }
-                Input { key: Key::Left, .. } => {
-                    app.plugin_panel_shift_tab();
-                }
-                // Tab 键切换标签
-                Input { key: Key::Tab, .. } => {
-                    app.plugin_panel_tab();
-                }
-                // 上下键移动光标
-                Input { key: Key::Up, .. } => {
-                    app.discover_move_up();
-                }
-                Input { key: Key::Down, .. } => {
-                    app.discover_move_down();
-                }
-                // 输入字母自动进入搜索模式
-                Input {
-                    key: Key::Char(c), ..
-                } => {
-                    app.discover_enter_search();
-                    app.discover_search_input(c);
-                }
-                // Enter 直接安装当前插件
-                Input {
-                    key: Key::Enter, ..
-                } => {
-                    handle_discover_install_current(app);
-                }
-                // Esc 关闭面板
-                Input { key: Key::Esc, .. } => {
-                    app.plugin_panel_close();
-                    app.sessions[app.active].core.panel_selection.clear();
-                    app.sessions[app.active].core.panel_area = None;
-                }
-                _ => {}
-            }
-        }
-        PluginPanelView::Marketplaces => {
-            // 检查是否处于特殊状态
-            let is_confirming = app
-                .plugin_panel
-                .as_ref()
-                .is_some_and(|p| p.marketplace_confirm_delete.is_some());
-            let is_adding = app
-                .plugin_panel
-                .as_ref()
-                .is_some_and(|p| p.add_marketplace_active);
-
-            if is_confirming {
-                match input {
-                    Input { key: Key::Esc, .. } => {
-                        app.marketplace_cancel_delete();
-                    }
-                    Input {
-                        key: Key::Enter, ..
-                    } => {
-                        if let Some(name) = app.marketplace_confirm_delete() {
-                            if let Err(e) = app.marketplace_delete_and_save(&name) {
-                                app.sessions[app.active].core.view_messages.push(
-                                    crate::app::MessageViewModel::system(format!(
-                                        "删除失败: {}",
-                                        e
-                                    )),
-                                );
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            } else if is_adding {
-                match input {
-                    Input { key: Key::Esc, .. } => {
-                        app.marketplace_exit_add();
-                    }
-                    Input {
-                        key: Key::Enter, ..
-                    } => {
-                        if let Some(source) = app.marketplace_add_confirm() {
-                            match app.marketplace_add_and_save(&source) {
-                                Ok(()) => {}
-                                Err(e) => {
-                                    app.sessions[app.active].core.view_messages.push(
-                                        crate::app::MessageViewModel::system(format!(
-                                            "添加失败: {}",
-                                            e
-                                        )),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    Input {
-                        key: Key::Backspace,
-                        ..
-                    } => {
-                        app.marketplace_add_backspace();
-                    }
-                    Input {
-                        key: Key::Char(ch), ..
-                    } => {
-                        app.marketplace_add_input(ch);
-                    }
-                    _ => {}
-                }
-            } else {
-                match input {
-                    // 左右箭头切换标签
-                    Input {
-                        key: Key::Right, ..
-                    } => {
-                        app.plugin_panel_tab();
-                    }
-                    Input { key: Key::Left, .. } => {
-                        app.plugin_panel_shift_tab();
-                    }
-                    // Tab 键切换标签
-                    Input { key: Key::Tab, .. } => {
-                        app.plugin_panel_tab();
-                    }
-                    Input { key: Key::Up, .. } => {
-                        app.marketplace_move_up();
-                    }
-                    Input { key: Key::Down, .. } => {
-                        app.marketplace_move_down();
-                    }
-                    // Enter 键：选中 Add Marketplace 或更新当前 marketplace
-                    Input {
-                        key: Key::Enter, ..
-                    } => {
-                        if app.marketplace_is_add_selected() {
-                            app.marketplace_enter_add();
-                        } else if let Some((name, source)) =
-                            app.marketplace_request_update_with_source()
-                        {
-                            let name_for_msg = name.clone();
-                            let source_for_update = source.clone();
-                            let tx = app.bg_event_tx.clone();
-                            tokio::spawn(async move {
-                                let result =
-                                    rust_agent_middlewares::plugin::marketplace::refresh_marketplace(
-                                        &source,
-                                        &name,
-                                    )
-                                    .await;
-
-                                match result {
-                                    Ok((_manifest, install_location)) => {
-                                        // 更新 installLocation 和 lastUpdated
-                                        if let Ok(mut marketplaces) =
-                                            rust_agent_middlewares::plugin::load_known_marketplaces(
-                                                None,
-                                            )
-                                        {
-                                            if let Some(entry) = marketplaces
-                                                .iter_mut()
-                                                .find(|km| km.source == source_for_update)
-                                            {
-                                                entry.install_location = install_location;
-                                                entry.last_updated =
-                                                    chrono::Utc::now().to_rfc3339();
-                                                let _ = rust_agent_middlewares::plugin::save_known_marketplaces(
-                                                    &marketplaces,
-                                                    None,
-                                                );
-                                            }
-                                        }
-                                        let _ = tx
-                                            .send(crate::app::AgentEvent::PluginActionCompleted {
-                                                plugin_id: name.clone(),
-                                                action: "refresh".to_string(),
-                                                success: true,
-                                                message: format!("Marketplace '{}' 已更新", name),
-                                            })
-                                            .await;
-                                    }
-                                    Err(e) => {
-                                        let _ = tx
-                                            .send(crate::app::AgentEvent::PluginActionCompleted {
-                                                plugin_id: name.clone(),
-                                                action: "refresh".to_string(),
-                                                success: false,
-                                                message: format!("更新失败: {}", e),
-                                            })
-                                            .await;
-                                    }
-                                }
-                            });
-
-                            app.sessions[app.active].core.view_messages.push(
-                                crate::app::MessageViewModel::system(format!(
-                                    "正在更新 marketplace: {}",
-                                    name_for_msg
-                                )),
-                            );
-                        }
-                    }
-                    // Backspace 键：删除（进入确认）
-                    Input {
-                        key: Key::Backspace,
-                        ..
-                    } => {
-                        app.marketplace_request_delete();
-                    }
-                    Input { key: Key::Esc, .. } => {
-                        app.plugin_panel_close();
-                        app.sessions[app.active].core.panel_selection.clear();
-                        app.sessions[app.active].core.panel_area = None;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        _ => {
-            // Installed / Errors 视图
-            match input {
-                // 左右箭头切换标签
-                Input {
-                    key: Key::Right, ..
-                } => {
-                    app.plugin_panel_tab();
-                }
-                Input { key: Key::Left, .. } => {
-                    app.plugin_panel_shift_tab();
-                }
-                // Tab 键切换标签
-                Input { key: Key::Tab, .. } => {
-                    app.plugin_panel_tab();
-                }
-                Input { key: Key::Up, .. } => {
-                    app.plugin_panel_move_up();
-                }
-                Input { key: Key::Down, .. } => {
-                    app.plugin_panel_move_down();
-                }
-                Input {
-                    key: Key::Char(' '),
-                    ..
-                } => {
-                    app.plugin_panel_toggle_enabled();
-                }
-                Input {
-                    key: Key::Enter, ..
-                } => {
-                    app.plugin_panel_enter_detail();
-                }
-                Input { key: Key::Esc, .. } => {
-                    app.plugin_panel_close();
-                    app.sessions[app.active].core.panel_selection.clear();
-                    app.sessions[app.active].core.panel_area = None;
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-/// 批量安装 Discover 视图中已选中的插件（保留以备将来使用）
-#[allow(dead_code)]
-fn handle_discover_batch_install(app: &mut App) {
-    let selected: Vec<(String, String)> = {
-        let panel = match &app.plugin_panel {
-            Some(p) => p,
-            None => return,
-        };
-        let mut result = Vec::new();
-        for id in &panel.discover_selected {
-            // 从 plugin_id 反解 name 和 marketplace
-            if let Some((name, marketplace)) = id.split_once('@') {
-                result.push((name.to_string(), marketplace.to_string()));
-            }
-        }
-        result
-    };
-
-    if selected.is_empty() {
-        return;
-    }
-
-    let claude_dir = dirs_next::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".claude");
-    let cache_dir = rust_agent_middlewares::plugin::marketplaces_cache_dir();
-    let tx = app.bg_event_tx.clone();
-    let project_dir = std::path::PathBuf::from(&app.cwd);
-
-    // 标记所有选中为安装中
-    if let Some(panel) = &mut app.plugin_panel {
-        for (name, marketplace) in &selected {
-            panel.installing.insert(format!("{}@{}", name, marketplace));
-        }
-    }
-
-    // 清空选中
-    if let Some(panel) = &mut app.plugin_panel {
-        panel.discover_selected.clear();
-    }
-
-    for (name, marketplace) in selected {
-        let tx = tx.clone();
-        let claude_dir = claude_dir.clone();
-        let cache_dir = cache_dir.clone();
-        let project_dir = project_dir.clone();
-        tokio::spawn(async move {
-            let result = rust_agent_middlewares::plugin::install_plugin(
-                &name,
-                &marketplace,
-                rust_agent_middlewares::plugin::InstallScope::User,
-                &cache_dir,
-                &claude_dir,
-                Some(&project_dir),
-            )
-            .await;
-            let _ = tx.try_send(crate::app::AgentEvent::PluginActionCompleted {
-                plugin_id: format!("{}@{}", name, marketplace),
-                action: "install".to_string(),
-                success: result.is_ok(),
-                message: result
-                    .map(|_| String::new())
-                    .unwrap_or_else(|e| e.to_string()),
-            });
-        });
-    }
-}
-
-/// 安装 Discover 视图中当前光标处的插件
-fn handle_discover_install_current(app: &mut App) {
-    let (name, marketplace, scope, plugin_id) = {
-        let panel = match &app.plugin_panel {
-            Some(p) => p,
-            None => return,
-        };
-        let plugin = match panel.discover_current_plugin() {
-            Some(p) => p,
-            None => return,
-        };
-        // 默认安装到 User scope
-        (
-            plugin.name.clone(),
-            plugin.marketplace.clone(),
-            rust_agent_middlewares::plugin::InstallScope::User,
-            plugin.plugin_id.clone(),
-        )
-    };
-
-    // 标记安装中
-    if let Some(panel) = &mut app.plugin_panel {
-        panel.installing.insert(plugin_id.clone());
-    }
-
-    let claude_dir = dirs_next::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".claude");
-    let cache_dir = rust_agent_middlewares::plugin::marketplaces_cache_dir();
-    let project_dir = std::path::PathBuf::from(&app.cwd);
-    let tx = app.bg_event_tx.clone();
-
-    tokio::spawn(async move {
-        let result = rust_agent_middlewares::plugin::install_plugin(
-            &name,
-            &marketplace,
-            scope,
-            &cache_dir,
-            &claude_dir,
-            Some(&project_dir),
-        )
-        .await;
-        let _ = tx.try_send(crate::app::AgentEvent::PluginActionCompleted {
-            plugin_id,
-            action: "install".to_string(),
-            success: result.is_ok(),
-            message: result
-                .map(|_| String::new())
-                .unwrap_or_else(|e| e.to_string()),
-        });
-    });
 }
 
 fn handle_oauth_prompt(app: &mut App, input: Input) {
