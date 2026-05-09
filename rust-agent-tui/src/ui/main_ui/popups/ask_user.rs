@@ -58,7 +58,7 @@ pub(crate) fn render_ask_user_popup(f: &mut Frame, app: &App, area: Rect) {
         active: Style::default()
             .fg(Color::White)
             .bg(theme::THINKING)
-            .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            .add_modifier(Modifier::BOLD),
         completed: Style::default().fg(theme::SAGE),
         incomplete: Style::default().fg(theme::MUTED),
         separator: " ",
