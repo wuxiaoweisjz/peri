@@ -113,11 +113,8 @@ impl ModelPanel {
         }
     }
 
-    /// 循环切换 effort（仅 Effort 行）：medium → high → low → medium
+    /// 循环切换 effort：medium → high → low → medium（任意光标位置可切换）
     pub fn cycle_effort(&mut self, reverse: bool) {
-        if self.cursor != ROW_EFFORT {
-            return;
-        }
         if reverse {
             self.buf_thinking_effort = match self.buf_thinking_effort.as_str() {
                 "low" => "high".to_string(),
@@ -166,8 +163,7 @@ impl PanelComponent for ModelPanel {
                 EventResult::Consumed
             }
             Input {
-                key: Key::Char(' ') | Key::Enter,
-                ..
+                key: Key::Enter, ..
             } => match self.cursor {
                 ROW_OPUS => {
                     self.active_tab = AliasTab::Opus;
@@ -190,6 +186,15 @@ impl PanelComponent for ModelPanel {
                 }
                 _ => EventResult::Consumed,
             },
+            // Space: 切换 effort 等级（无需选中 effort 行）
+            Input {
+                key: Key::Char(' '),
+                ..
+            } => {
+                self.cycle_effort(false);
+                EventResult::Consumed
+            }
+            // ←/→: 随时切换 effort 等级
             Input { key: Key::Left, .. } => {
                 self.cycle_effort(true);
                 EventResult::Consumed
@@ -224,7 +229,7 @@ impl PanelComponent for ModelPanel {
         vec![
             ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
             ("Enter", "\u{786e}\u{8ba4}"),
-            ("Space", "\u{9009}\u{62e9}/\u{5207}\u{6362}"),
+            ("\u{2190}\u{2192}/Space", "Effort"),
             ("Esc", "\u{5173}\u{95ed}"),
         ]
     }
@@ -355,12 +360,13 @@ mod tests {
     }
 
     #[test]
-    fn test_cycle_effort_ignored_on_model_rows() {
+    fn test_cycle_effort_works_from_any_row() {
         let cfg = make_config();
         let mut panel = ModelPanel::from_config(&cfg);
         assert_eq!(panel.cursor, ROW_OPUS);
+        // cycle_effort 现在可以在任意光标位置切换
         panel.cycle_effort(false);
-        assert_eq!(panel.buf_thinking_effort, "medium");
+        assert_eq!(panel.buf_thinking_effort, "high");
     }
 
     #[test]

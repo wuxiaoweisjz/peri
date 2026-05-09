@@ -89,6 +89,10 @@ impl PanelComponent for CronPanel {
                 }
                 Input {
                     key: Key::Enter, ..
+                }
+                | Input {
+                    key: Key::Char(' '),
+                    ..
                 } => {
                     self.do_toggle(ctx);
                     EventResult::Consumed
@@ -134,7 +138,7 @@ impl PanelComponent for CronPanel {
         }
         vec![
             ("\u{2191}\u{2193}", "\u{5bfc}\u{822a}"),
-            ("Enter", "\u{5207}\u{6362}"),
+            ("Enter/Space", "\u{5207}\u{6362}"),
             ("Ctrl+D", "\u{5220}\u{9664}"),
             ("Esc", "\u{5173}\u{95ed}"),
         ]

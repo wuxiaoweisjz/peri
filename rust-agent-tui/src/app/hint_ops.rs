@@ -13,6 +13,11 @@ impl<'a> HintItem<'a> {
             HintItem::Skill { name } => name,
         }
     }
+
+    /// 命令优先于 Skill
+    fn is_cmd(&self) -> bool {
+        matches!(self, HintItem::Cmd { .. })
+    }
 }
 
 impl App {
@@ -47,7 +52,15 @@ impl App {
         for skill in &skill_candidates {
             items.push(HintItem::Skill { name: &skill.name });
         }
-        items.sort_by(|a, b| a.name().cmp(b.name()));
+        items.sort_by(|a, b| {
+            let a_starts = a.name().starts_with(prefix) as u8;
+            let b_starts = b.name().starts_with(prefix) as u8;
+            // 前缀匹配优先 > 命令优先于 Skill > 字母序
+            b_starts
+                .cmp(&a_starts)
+                .then_with(|| b.is_cmd().cmp(&a.is_cmd()))
+                .then_with(|| a.name().cmp(b.name()))
+        });
         items
     }
 

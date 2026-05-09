@@ -19,7 +19,7 @@ enum HintItem<'a> {
 
 const MAX_VIEWPORT: usize = 10;
 
-/// 统一提示浮层：输入 / 前缀时展示命令和 Skills 候选（按字母顺序排列）
+/// 统一提示浮层：输入 / 前缀时展示命令和 Skills 候选（前缀匹配优先，再按字母顺序排列）
 pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     let first_line = app.session_mgr.sessions[app.session_mgr.active]
         .ui
@@ -44,7 +44,7 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
         .filter(|s| prefix.is_empty() || s.name.contains(prefix))
         .collect();
 
-    // 合并并按名称排序（全量，不截断）
+    // 合并排序：前缀匹配优先，再按名称字母序
     let mut items: Vec<HintItem<'_>> = Vec::new();
     for (name, desc) in &cmd_candidates {
         items.push(HintItem::Cmd { name, desc });
@@ -55,7 +55,15 @@ pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
             desc: &skill.description,
         });
     }
-    items.sort_by(|a, b| a.name().cmp(b.name()));
+    items.sort_by(|a, b| {
+        let a_starts = a.name().starts_with(prefix) as u8;
+        let b_starts = b.name().starts_with(prefix) as u8;
+        // 前缀匹配优先 > 命令优先于 Skill > 字母序
+        b_starts
+            .cmp(&a_starts)
+            .then_with(|| b.is_cmd().cmp(&a.is_cmd()))
+            .then_with(|| a.name().cmp(b.name()))
+    });
 
     if items.is_empty() {
         return;
@@ -188,5 +196,10 @@ impl<'a> HintItem<'a> {
             HintItem::Cmd { desc, .. } => desc,
             HintItem::Skill { desc, .. } => desc,
         }
+    }
+
+    /// 命令优先于 Skill
+    fn is_cmd(&self) -> bool {
+        matches!(self, HintItem::Cmd { .. })
     }
 }

@@ -2067,7 +2067,7 @@ mod tests {
     #[tokio::test]
     async fn test_unified_hint_shows_commands_and_skills() {
         use rust_agent_middlewares::skills::loader::SkillMetadata;
-        let (mut app, mut handle) = App::new_headless(120, 30).await;
+        let (mut app, mut handle) = App::new_headless(120, 50).await;
 
         // 设置输入框内容为 /
         app.session_mgr.sessions[app.session_mgr.active].ui.textarea =
@@ -2095,6 +2095,21 @@ mod tests {
                 path: "/tmp/review.md".into(),
             });
 
+        // 候选列表应包含命令和 Skills
+        let count = app.hint_candidates_count();
+        let cmd_count = app.session_mgr.sessions[app.session_mgr.active]
+            .commands
+            .command_registry
+            .match_prefix("")
+            .len();
+        assert_eq!(
+            count,
+            cmd_count + 2,
+            "候选应包含 {} 命令 + 2 Skills",
+            cmd_count
+        );
+
+        // 渲染后应显示命令（视口 MAX_VIEWPORT=10，命令优先排序）
         handle
             .terminal
             .draw(|f| main_ui::render(f, &mut app))
@@ -2102,22 +2117,9 @@ mod tests {
         let snap = handle.snapshot();
         let snap_text = snap.join("\n");
 
-        // 应包含命令名和 Skill 名
         assert!(
             snap_text.contains("model"),
             "应显示 model 命令，实际:\n{}",
-            snap_text
-        );
-        assert!(
-            snap_text.contains("commit"),
-            "应显示 commit Skill，实际:\n{}",
-            snap_text
-        );
-
-        // 应包含分组标题（CJK 字符在 TestBackend 中有宽字符填充，只断言 ASCII 标题）
-        assert!(
-            snap_text.contains("Skills"),
-            "应包含 Skills 分组标题，实际:\n{}",
             snap_text
         );
     }
