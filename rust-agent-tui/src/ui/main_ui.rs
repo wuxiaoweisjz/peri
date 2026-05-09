@@ -461,7 +461,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         // total_lines 已是 wrap 后的真实视觉行数（由渲染线程通过 Paragraph::line_count 计算）
         let total_lines = cache.total_lines;
         let spinner_extra: u16 = if spinner_line.is_some() {
-            let base = 1; // spinner summary line
+            let base = 1 + 2; // spinner line + 2 padding blank lines
             if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
                 base + 1
                     + app.session_mgr.sessions[app.session_mgr.active]
@@ -510,6 +510,7 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
         .ui
         .scroll_offset = offset;
     if let Some(line) = spinner_line {
+        all_lines.push(Line::from(""));
         all_lines.push(line);
         // Tip + TODO 仅在活跃 loading 时显示
         if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
@@ -561,6 +562,9 @@ fn render_messages(f: &mut Frame, app: &mut App, header_area: Rect, messages_are
                 }
                 all_lines.push(Line::from(spans));
             }
+            all_lines.push(Line::from(""));
+        } else {
+            all_lines.push(Line::from(""));
         }
     }
 

@@ -1730,27 +1730,24 @@ mod tests {
         app.process_pending_events();
         notified.await;
 
-        // view_messages 应包含压缩提示、摘要和重新注入信息
+        // view_messages 应包含压缩提示（单条占位消息）
         let msgs = &app.session_mgr.sessions[app.session_mgr.active]
             .messages
             .view_messages;
-        assert!(msgs.len() >= 2, "应有至少 2 条消息，实际: {}", msgs.len());
+        assert_eq!(
+            msgs.len(),
+            1,
+            "应只有 1 条压缩占位消息，实际: {}",
+            msgs.len()
+        );
         let has_compact = msgs.iter().any(|m| {
             if let MessageViewModel::SystemNote { content } = m {
-                content.contains("压缩")
+                content.contains("上下文已压缩") && content.contains("注入")
             } else {
                 false
             }
         });
         assert!(has_compact, "应包含压缩提示消息");
-        let has_re_inject = msgs.iter().any(|m| {
-            if let MessageViewModel::SystemNote { content } = m {
-                content.contains("重新注入")
-            } else {
-                false
-            }
-        });
-        assert!(has_re_inject, "应包含重新注入提示");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1764,29 +1761,23 @@ mod tests {
         let msgs = &app.session_mgr.sessions[app.session_mgr.active]
             .messages
             .view_messages;
-        assert!(!msgs.is_empty(), "应有至少 1 条消息");
-        let has_summary = msgs.iter().any(|m| {
-            if let MessageViewModel::AssistantBubble { blocks, .. } = m {
-                blocks.iter().any(|b| {
-                    if let crate::ui::message_view::ContentBlockView::Text { raw, .. } = b {
-                        raw.contains("Simple summary")
-                    } else {
-                        false
-                    }
-                })
+        assert_eq!(msgs.len(), 1, "应只有 1 条压缩占位消息");
+        let has_compact = msgs.iter().any(|m| {
+            if let MessageViewModel::SystemNote { content } = m {
+                content.contains("上下文已压缩")
             } else {
                 false
             }
         });
-        assert!(has_summary, "应包含摘要文本");
+        assert!(has_compact, "应包含压缩提示消息");
         let has_re_inject = msgs.iter().any(|m| {
             if let MessageViewModel::SystemNote { content } = m {
-                content.contains("重新注入")
+                content.contains("注入")
             } else {
                 false
             }
         });
-        assert!(!has_re_inject, "无重新注入内容时不应显示重新注入提示");
+        assert!(!has_re_inject, "无重新注入内容时不应显示注入提示");
     }
 
     #[tokio::test]

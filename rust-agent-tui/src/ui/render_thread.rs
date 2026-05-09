@@ -153,12 +153,17 @@ impl RenderTask {
                 ensure_rendered(block, width);
             }
         }
+        // 用实际终端宽度重新解析用户消息的 markdown（初始创建时用默认宽度 80）
+        if let MessageViewModel::UserBubble {
+            content, rendered, ..
+        } = vm
+        {
+            *rendered = super::markdown::parse_markdown(content, width);
+        }
 
         let mut lines = render_view_model(vm, Some(index), width);
-        // 空内容消息不添加分隔行（如只有思考内容被隐藏的 AssistantBubble）
-        if !lines.is_empty() {
-            lines.push(Line::from(""));
-        }
+        // 每条消息后追加空行分隔符（包括空内容消息，确保间距一致）
+        lines.push(Line::from(""));
         lines
     }
 
@@ -172,6 +177,26 @@ impl RenderTask {
             offsets.push(all_lines.len());
             all_lines.extend(Self::render_one(vm, i + 1, width));
         }
+
+        // 过滤连续空行，保留单个空行作为消息分隔符
+        let mut deduped: Vec<Line<'static>> = Vec::with_capacity(all_lines.len());
+        let mut prev_empty = false;
+        for line in all_lines {
+            let is_empty = line.spans.is_empty()
+                || (line.spans.len() == 1 && line.spans[0].content.is_empty());
+            if is_empty && prev_empty {
+                continue;
+            }
+            prev_empty = is_empty;
+            deduped.push(line);
+        }
+        // 移除末尾多余空行
+        while deduped.last().map_or(false, |l| {
+            l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.is_empty())
+        }) {
+            deduped.pop();
+        }
+        all_lines = deduped;
 
         let render_width = self.width;
         let mut cache = self.cache.write();
@@ -195,6 +220,16 @@ impl RenderTask {
 
                     let render_width = self.width;
                     let mut cache = self.cache.write();
+                    // 确保新消息与上一条消息之间有空行间隔
+                    //（rebuild_all 会移除末尾空行，所以 AddMessage 时需要补回）
+                    let needs_gap = !cache.lines.is_empty()
+                        && cache.lines.last().map_or(true, |l| {
+                            !(l.spans.is_empty()
+                                || (l.spans.len() == 1 && l.spans[0].content.is_empty()))
+                        });
+                    if needs_gap {
+                        cache.lines.push(Line::from(""));
+                    }
                     let offset = cache.lines.len();
                     cache.message_offsets.push(offset);
                     cache.lines.extend(lines);
@@ -426,6 +461,125 @@ mod tests {
             c.message_offsets.len(),
             1,
             "should still have 1 message offset"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_add_message_gap_after_single_rebuild() {
+        let (tx, cache, _notify) = spawn_render_thread(80);
+
+        // 只有一条用户消息，触发 LoadHistory
+        let user1 = MessageViewModel::user("First".to_string());
+        tx.send(RenderEvent::AddMessage(user1.clone())).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 触发 rebuild_all
+        tx.send(RenderEvent::LoadHistory(vec![user1])).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 确认末尾无空行
+        {
+            let c = cache.read();
+            let last_is_empty = c.lines.last().map_or(false, |l| {
+                l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.is_empty())
+            });
+            assert!(!last_is_empty, "after rebuild_all, no trailing blank");
+        }
+
+        // 添加第二条用户消息
+        tx.send(RenderEvent::AddMessage(MessageViewModel::user(
+            "Second".to_string(),
+        )))
+        .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let c = cache.read();
+        // 找 "Second" 的行，检查前一行
+        let mut idx = None;
+        for (i, line) in c.lines.iter().enumerate() {
+            for span in &line.spans {
+                if span.content.contains("Second") {
+                    idx = Some(i);
+                    break;
+                }
+            }
+            if idx.is_some() {
+                break;
+            }
+        }
+        let i = idx.expect("should find 'Second'");
+        assert!(i > 0, "second msg should not be first line");
+        let prev_empty = c.lines[i - 1].spans.is_empty()
+            || (c.lines[i - 1].spans.len() == 1 && c.lines[i - 1].spans[0].content.is_empty());
+        assert!(
+            prev_empty,
+            "gap before second msg, line {} = {:?}",
+            i - 1,
+            c.lines[i - 1]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_add_message_has_gap_after_rebuild_all() {
+        let (tx, cache, _notify) = spawn_render_thread(80);
+
+        // 模拟 rebuild_all：添加两条消息后触发 LoadHistory
+        let user1 = MessageViewModel::user("First message".to_string());
+        let mut asst = MessageViewModel::assistant();
+        asst.append_chunk("Reply");
+        tx.send(RenderEvent::AddMessage(user1.clone())).unwrap();
+        tx.send(RenderEvent::AddMessage(asst.clone())).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 触发 LoadHistory（等同于 rebuild_all，会移除末尾空行）
+        tx.send(RenderEvent::LoadHistory(vec![user1, asst]))
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 确认末尾没有空行（rebuild_all 行为）
+        {
+            let c = cache.read();
+            let last_is_empty = c.lines.last().map_or(false, |l| {
+                l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.is_empty())
+            });
+            assert!(
+                !last_is_empty,
+                "rebuild_all should remove trailing blank line"
+            );
+        }
+
+        // 添加第二条用户消息
+        tx.send(RenderEvent::AddMessage(MessageViewModel::user(
+            "Second message".to_string(),
+        )))
+        .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 验证第二条用户消息前有空行间隔
+        let c = cache.read();
+        let lines = &c.lines;
+        // 找到 "❯ Second message" 所在行，检查其前一行是否为空行
+        let mut second_msg_idx = None;
+        for (i, line) in lines.iter().enumerate() {
+            for span in &line.spans {
+                if span.content.contains("Second message") {
+                    second_msg_idx = Some(i);
+                    break;
+                }
+            }
+            if second_msg_idx.is_some() {
+                break;
+            }
+        }
+        let idx = second_msg_idx.expect("should find second user message");
+        assert!(idx > 0, "second message should not be the first line");
+        let prev_is_empty = lines[idx - 1].spans.is_empty()
+            || (lines[idx - 1].spans.len() == 1 && lines[idx - 1].spans[0].content.is_empty());
+        assert!(
+            prev_is_empty,
+            "should have blank line before second user message, but line {} is: {:?}",
+            idx - 1,
+            lines[idx - 1]
         );
     }
 

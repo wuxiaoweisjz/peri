@@ -1167,7 +1167,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             .panel_selection
                             .set_selected_text(text);
                     }
-                    // 注意：不在此处自动复制，保留选区等用户右键复制
+                    copy_panel_selection_to_clipboard(app);
                 }
                 if app.session_mgr.sessions[app.session_mgr.active]
                     .ui
@@ -1203,7 +1203,7 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
                             .text_selection
                             .set_selected_text(text);
                     }
-                    // 注意：不在此处自动复制，保留选区等用户右键复制
+                    copy_selection_to_clipboard(app);
                 }
                 // textarea 选区在 mouse up 时不做额外处理，保持 tui_textarea 的选区状态
             }

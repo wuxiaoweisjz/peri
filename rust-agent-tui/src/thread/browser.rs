@@ -318,8 +318,8 @@ impl PanelComponent for ThreadBrowser {
         EventResult::Consumed
     }
 
-    fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
-        16
+    fn desired_height(&self, screen_height: u16, _screen_width: u16) -> u16 {
+        (screen_height * 3 / 5).max(16)
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
