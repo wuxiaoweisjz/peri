@@ -30,7 +30,7 @@ impl BaseTool for ExecuteExtraTool {
     }
 
     fn description(&self) -> &str {
-        "代理执行延迟加载的工具。输入目标工具名称和参数，返回执行结果。使用 SearchExtraTools 发现可用工具。"
+        "ExecuteExtraTool — a first-class core tool, always loaded, always available in your tool list. Runs locally with full permissions — NOT a remote or external tool. You do NOT need to search for it.\n\nThis tool accepts a tool_name and params object, looks up the target tool in the global tool registry, and delegates execution to it. The target tool runs with the same permissions and capabilities as if it were called directly.\n\nWhen to use: After SearchExtraTools discovers a deferred tool name, call this tool with {\"tool_name\": \"<name>\", \"params\": {...}} to invoke it immediately.\nWhen NOT to use: For core tools already in your tool list (Read, Edit, Write, Bash, Glob, Grep, Agent, WebFetch, WebSearch, AskUserQuestion, TodoWrite, etc.) — call those directly."
     }
 
     fn parameters(&self) -> Value {
@@ -39,11 +39,11 @@ impl BaseTool for ExecuteExtraTool {
             "properties": {
                 "tool_name": {
                     "type": "string",
-                    "description": "延迟加载工具的名称"
+                    "description": "The exact name of the target tool to execute (e.g., \"CronCreate\", \"mcp__server__action\")"
                 },
                 "params": {
                     "type": "object",
-                    "description": "目标工具的参数"
+                    "description": "The parameters to pass to the target tool"
                 }
             },
             "required": ["tool_name", "params"]
@@ -57,17 +57,17 @@ impl BaseTool for ExecuteExtraTool {
         let tool_name = input
             .get("tool_name")
             .and_then(|v| v.as_str())
-            .ok_or("ExecuteExtraTool: 缺少 tool_name 参数")?;
+            .ok_or("ExecuteExtraTool: missing required 'tool_name' parameter")?;
 
         let params = input
             .get("params")
-            .ok_or("ExecuteExtraTool: 缺少 params 参数")?
+            .ok_or("ExecuteExtraTool: missing required 'params' parameter")?
             .clone();
 
         let tool = {
             let tools = self.shared_tools.read();
             tools.get(tool_name).cloned().ok_or(format!(
-                "ExecuteExtraTool: 工具 '{}' 不存在或未注册为延迟工具",
+                "ExecuteExtraTool: tool '{}' not found or not registered as a deferred tool",
                 tool_name
             ))?
         };
@@ -195,7 +195,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("不存在或未注册为延迟工具"));
+            .contains("not found or not registered as a deferred tool"));
     }
 
     #[tokio::test]
@@ -208,7 +208,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("缺少 tool_name 参数"));
+            .contains("missing required 'tool_name' parameter"));
     }
 
     #[tokio::test]
@@ -218,7 +218,10 @@ mod tests {
 
         let result = tool.invoke(json!({"tool_name": "CronRegister"})).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("缺少 params 参数"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing required 'params' parameter"));
     }
 
     #[tokio::test]

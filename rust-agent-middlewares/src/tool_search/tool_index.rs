@@ -180,8 +180,36 @@ impl ToolSearchIndex {
 
     /// 混合搜索
     ///
-    /// 关键词分数 × 0.4 + TF-IDF 分数 × 0.6
+    /// 查询语法：
+    /// - `select:CronCreate,Snip` — 按精确名称查找，逗号分隔
+    /// - `+slack message` — `+` 前缀词为必选，其余为可选关键词
+    /// - `slack message` — 纯关键词搜索
+    ///
+    /// 评分：关键词分数 × 0.4 + TF-IDF 分数 × 0.6
     pub fn search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
+        // select: 前缀 — 按精确名称直接查找
+        if let Some(names_str) = query.strip_prefix("select:") {
+            let tools = self.tools.read();
+            let names: Vec<&str> = names_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
+            return names
+                .into_iter()
+                .filter_map(|name| {
+                    let tool = tools.get(name)?;
+                    Some(SearchResult {
+                        name: tool.name().to_string(),
+                        description: tool.description().to_string(),
+                        parameters: tool.parameters(),
+                        score: 1.0,
+                    })
+                })
+                .take(limit)
+                .collect();
+        }
+
         let (required, optional) = keyword_search::parse_query(query);
         let tools = self.tools.read();
         let tfidf = self.tfidf_index.read();
@@ -255,15 +283,15 @@ impl ToolSearchIndex {
             return String::new();
         }
 
-        let mut lines = String::from("## Deferred Tools (延迟加载工具)\n\n");
-        lines.push_str("以下工具不在直接工具列表中。使用 `SearchExtraTools` 搜索，`ExecuteExtraTool` 调用。\n\n");
+        let mut lines = String::from("## Deferred Tools\n\n");
+        lines.push_str("The following tools are not in your direct tool list. Use `SearchExtraTools` to search for them, then `ExecuteExtraTool` to invoke.\n\n");
         for (name, tool) in tools.iter() {
             lines.push_str(&format!("- {}: {}\n", name, tool.description()));
             let params = tool.parameters();
             let props = params.get("properties");
             if let Some(props) = props.and_then(|p| p.as_object()) {
                 if !props.is_empty() {
-                    lines.push_str("  参数:\n");
+                    lines.push_str("  Parameters:\n");
                     for (param_name, param_schema) in props {
                         let desc = param_schema
                             .get("description")
@@ -427,5 +455,38 @@ mod tests {
         let tools = make_mock_tools();
         index.build(tools);
         assert_eq!(index.total_count(), 5);
+    }
+
+    #[test]
+    fn test_select_exact_match() {
+        let index = ToolSearchIndex::new();
+        let tools = make_mock_tools();
+        index.build(tools);
+
+        let results = index.search("select:CronRegister,CronList", 10);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "CronRegister");
+        assert_eq!(results[1].name, "CronList");
+    }
+
+    #[test]
+    fn test_select_partial_miss() {
+        let index = ToolSearchIndex::new();
+        let tools = make_mock_tools();
+        index.build(tools);
+
+        let results = index.search("select:CronRegister,NonExistent", 10);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "CronRegister");
+    }
+
+    #[test]
+    fn test_select_empty_result() {
+        let index = ToolSearchIndex::new();
+        let tools = make_mock_tools();
+        index.build(tools);
+
+        let results = index.search("select:NonExistent", 10);
+        assert!(results.is_empty());
     }
 }

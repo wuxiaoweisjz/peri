@@ -29,7 +29,7 @@ impl BaseTool for SearchExtraTools {
     }
 
     fn description(&self) -> &str {
-        "搜索并发现延迟加载的工具。输入关键词，返回匹配的工具列表（含完整 schema）。使用 ExecuteExtraTool 调用发现的工具。"
+        "Search for deferred tools by name or keyword. LOW PRIORITY — only use this tool when no core tool can accomplish the task. Core tools (Read, Edit, Write, Bash, Glob, Grep, Agent, WebFetch, WebSearch, AskUserQuestion, TodoWrite) are always available and should be used directly. This tool is for discovering additional capabilities like MCP tools, cron scheduling, etc.\n\nReturns matching tools with their full JSON schemas.\n\nIMPORTANT: ExecuteExtraTool is always available in your tool list. After this search returns tool names, you MUST call ExecuteExtraTool with {\"tool_name\": \"<returned_name>\", \"params\": {...}} to invoke the deferred tool. This is the ONLY way to execute deferred tools — do not read source code or analyze whether the tool is callable, just use ExecuteExtraTool directly.\n\nQuery forms:\n- \"select:CronCreate,Snip\" — fetch these exact tools by name\n- \"slack send\" — keyword search, best matches returned"
     }
 
     fn parameters(&self) -> Value {
@@ -38,7 +38,11 @@ impl BaseTool for SearchExtraTools {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "搜索关键词或自然语言描述"
+                    "description": "Query to find deferred tools. Use \"select:<tool_name>\" for direct selection, or keywords to search."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default: 5)"
                 }
             },
             "required": ["query"]
@@ -52,9 +56,14 @@ impl BaseTool for SearchExtraTools {
         let query = input
             .get("query")
             .and_then(|v| v.as_str())
-            .ok_or("SearchExtraTools: 缺少 query 参数")?;
+            .ok_or("SearchExtraTools: missing required 'query' parameter")?;
 
-        let results = self.index.search(query, 10);
+        let max_results = input
+            .get("max_results")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5) as usize;
+
+        let results = self.index.search(query, max_results);
         let total = self.index.total_count();
         let output = json!({
             "results": results,
@@ -180,6 +189,9 @@ mod tests {
 
         let result = tool.invoke(json!({})).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("缺少 query 参数"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing required 'query' parameter"));
     }
 }

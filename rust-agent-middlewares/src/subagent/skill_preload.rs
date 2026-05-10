@@ -18,9 +18,9 @@ use crate::skills::{list_skills, load_global_skills_dir};
 ///
 /// ```text
 /// [Human] "(System: Preloading skill files)"
-/// [Ai]    [ToolUse{Read, skill_preload_0}, ToolUse{Read, skill_preload_1}, ...]
-/// [Tool]  ToolResult{skill_preload_0, skill_0_content}
-/// [Tool]  ToolResult{skill_preload_1, skill_1_content}
+/// [Ai]    [ToolUse{Read, call_{hex}}, ToolUse{Read, call_{hex}}, ...]
+/// [Tool]  ToolResult{call_{hex}, skill_0_content}
+/// [Tool]  ToolResult{call_{hex}, skill_1_content}
 /// ...
 /// ```
 ///
@@ -93,25 +93,23 @@ impl<S: State> Middleware<S> for SkillPreloadMiddleware {
             return Ok(());
         }
 
+        // Generate tool_call_ids: call_{uuid hex without hyphens, 32 chars}
+        let call_ids: Vec<String> = (0..skill_contents.len())
+            .map(|_| format!("call_{}", uuid::Uuid::new_v4().simple()))
+            .collect();
+
         // 构造 Ai 消息的 ToolUse ContentBlock 列表
         let tool_use_blocks: Vec<ContentBlock> = skill_contents
             .iter()
-            .enumerate()
-            .map(|(i, (path, _))| {
-                ContentBlock::tool_use(
-                    format!("skill_preload_{}", i),
-                    "Read",
-                    serde_json::json!({ "path": path }),
-                )
+            .zip(call_ids.iter())
+            .map(|((path, _), id)| {
+                ContentBlock::tool_use(id.clone(), "Read", serde_json::json!({ "path": path }))
             })
             .collect();
 
         // 逆序 prepend Tool 消息，保证最终顺序 Tool[0] → Tool[1] → ...
-        for (i, (_, content)) in skill_contents.iter().enumerate().rev() {
-            state.prepend_message(BaseMessage::tool_result(
-                format!("skill_preload_{}", i),
-                content.clone(),
-            ));
+        for (id, (_, content)) in call_ids.iter().zip(skill_contents.iter()).rev() {
+            state.prepend_message(BaseMessage::tool_result(id.clone(), content.clone()));
         }
 
         // Prepend Ai 消息（ai_from_blocks 自动双写 tool_calls）
@@ -285,8 +283,16 @@ mod tests {
         let tool_calls = ai_msg.tool_calls();
         assert_eq!(tool_calls.len(), 2, "Ai 消息应有 2 个工具调用");
         assert_eq!(tool_calls[0].name, "Read");
-        assert_eq!(tool_calls[0].id, "skill_preload_0");
-        assert_eq!(tool_calls[1].id, "skill_preload_1");
+        assert!(
+            tool_calls[0].id.starts_with("call_") && tool_calls[0].id.len() == 37,
+            "tool_call_id should be call_{{uuid}}, got: {}",
+            tool_calls[0].id
+        );
+        assert!(
+            tool_calls[1].id.starts_with("call_") && tool_calls[1].id.len() == 37,
+            "tool_call_id should be call_{{uuid}}, got: {}",
+            tool_calls[1].id
+        );
     }
 
     #[tokio::test]
