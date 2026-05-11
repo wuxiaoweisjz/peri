@@ -25,6 +25,9 @@ pub trait State: Send + Sync + Clone + 'static {
 
     fn token_tracker(&self) -> &crate::agent::token::TokenTracker;
     fn token_tracker_mut(&mut self) -> &mut crate::agent::token::TokenTracker;
+
+    /// 获取消息的可变引用（用于 micro_compact 等原地修改场景）
+    fn messages_mut(&mut self) -> &mut Vec<BaseMessage>;
 }
 
 /// 基础 Agent 状态（与 TypeScript BaseAgentStateType 对齐）
@@ -165,6 +168,10 @@ impl State for AgentState {
     }
     fn token_tracker_mut(&mut self) -> &mut crate::agent::token::TokenTracker {
         &mut self.token_tracker
+    }
+
+    fn messages_mut(&mut self) -> &mut Vec<BaseMessage> {
+        &mut self.messages
     }
 }
 

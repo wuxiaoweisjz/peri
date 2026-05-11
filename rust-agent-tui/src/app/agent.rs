@@ -213,6 +213,8 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         .claude_md_excludes
         .clone()
         .unwrap_or_default();
+    let mut compact_config = peri_config.config.compact.clone().unwrap_or_default();
+    compact_config.apply_env_overrides();
     let config_for_factory = peri_config;
     #[allow(clippy::type_complexity)]
     let llm_factory: Arc<
@@ -283,8 +285,16 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         >,
     > = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
 
+    // 设置 context_budget 以启用核心层的 token 用量监控和 micro_compact
+    let context_window = model.context_window();
+    let context_budget = rust_create_agent::agent::token::ContextBudget::new(context_window)
+        .with_auto_compact_threshold(compact_config.auto_compact_threshold)
+        .with_warning_threshold(compact_config.micro_compact_threshold);
+
     let executor = ReActAgent::new(model)
         .max_iterations(500)
+        .with_context_budget(context_budget)
+        .with_compact_config(compact_config)
         .with_notification_rx(bg_notification_rx)
         .with_system_prompt(system_prompt) // executor 内部固定 prepend，无顺序约束
         .with_tool_filter(rust_agent_middlewares::tool_search::is_deferred_tool)

@@ -708,7 +708,6 @@ pub fn highlight_line_spans<'a>(
     char_start: usize,
     char_end: usize,
 ) -> Vec<Span<'a>> {
-    let selection_style = Style::default().bg(theme::SELECTION_BG);
     let mut result = Vec::new();
     let mut cursor: usize = 0; // 当前在 plain_text 中的字符位置
     for span in spans {
@@ -720,8 +719,17 @@ pub fn highlight_line_spans<'a>(
             // 完全在选区外 → 保持原样
             result.push(span);
         } else if span_start >= char_start && span_end <= char_end {
-            // 完全在选区内 → 淡蓝色背景
-            result.push(span.patch_style(selection_style));
+            // 完全在选区内 → 淡蓝色背景（强制覆盖原有 bg）
+            result.push(Span::styled(
+                span.content,
+                Style {
+                    fg: span.style.fg,
+                    bg: Some(theme::SELECTION_BG),
+                    underline_color: span.style.underline_color,
+                    add_modifier: span.style.add_modifier,
+                    sub_modifier: span.style.sub_modifier,
+                },
+            ));
         } else {
             // 部分重叠 → 拆分为 2~3 个子 span
             // 左段（选区外）
@@ -755,7 +763,13 @@ pub fn highlight_line_spans<'a>(
                 .unwrap_or(span.content.len());
             result.push(Span::styled(
                 span.content[byte_start..byte_end].to_string(),
-                selection_style.patch(span.style),
+                Style {
+                    fg: span.style.fg,
+                    bg: Some(theme::SELECTION_BG),
+                    underline_color: span.style.underline_color,
+                    add_modifier: span.style.add_modifier,
+                    sub_modifier: span.style.sub_modifier,
+                },
             ));
             // 右段（选区外）
             if span_end > char_end {

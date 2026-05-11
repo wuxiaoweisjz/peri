@@ -164,6 +164,13 @@ impl App {
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
             .pending_bg_continuation = None;
+        // 保存原始用户输入（compact 后自动 re-submit 用）并重置 re-submit 计数器
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .last_user_input = Some(input.clone());
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .auto_compact_resubmit_count = 0;
         // 重置 LSP 诊断计数
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
@@ -391,6 +398,53 @@ impl App {
                 prefix_len,
                 tail_vms,
             } => {
+                // [DEBUG] 临时诊断：打印 RebuildAll 的 tail_vms 摘要
+                let summary: Vec<String> = tail_vms
+                    .iter()
+                    .map(|vm| match vm {
+                        MessageViewModel::UserBubble { content, .. } => {
+                            format!("User({})", content.chars().take(20).collect::<String>())
+                        }
+                        MessageViewModel::AssistantBubble {
+                            blocks,
+                            is_streaming,
+                            ..
+                        } => {
+                            let texts: Vec<&str> = blocks
+                                .iter()
+                                .filter_map(|b| {
+                                    if let ContentBlockView::Text { raw, .. } = b {
+                                        Some(raw.as_str())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            format!("AI(stream={},texts=[{}])", is_streaming, texts.join(", "))
+                        }
+                        MessageViewModel::ToolBlock {
+                            tool_name, content, ..
+                        } => format!(
+                            "Tool({}:{})",
+                            tool_name,
+                            if content.is_empty() {
+                                "pending"
+                            } else {
+                                "done"
+                            }
+                        ),
+                        MessageViewModel::ToolCallGroup { tools, .. } => {
+                            format!("ToolGroup({})", tools.len())
+                        }
+                        MessageViewModel::SubAgentGroup {
+                            agent_id,
+                            is_running,
+                            ..
+                        } => format!("SubAgent({},{})", agent_id, is_running),
+                        _ => "Other".into(),
+                    })
+                    .collect();
+                tracing::info!(prefix_len, tail = summary.join(", "), "RebuildAll");
                 self.session_mgr.sessions[self.session_mgr.active]
                     .messages
                     .view_messages
@@ -1432,6 +1486,44 @@ impl App {
                     .is_empty()
                 {
                     self.flush_pending_messages();
+                }
+
+                // Auto-continue: compact 完成后自动用原始输入重新启动 agent
+                const MAX_AUTO_COMPACT_RESUBMITS: u32 = 3;
+                if let Some(ref original_input) = self.session_mgr.sessions[self.session_mgr.active]
+                    .agent
+                    .last_user_input
+                {
+                    if self.session_mgr.sessions[self.session_mgr.active]
+                        .agent
+                        .auto_compact_resubmit_count
+                        < MAX_AUTO_COMPACT_RESUBMITS
+                    {
+                        let input = original_input.clone();
+                        let new_count = self.session_mgr.sessions[self.session_mgr.active]
+                            .agent
+                            .auto_compact_resubmit_count
+                            + 1;
+                        tracing::info!(
+                            count = new_count,
+                            "auto-compact: re-submitting original user input to continue agent"
+                        );
+                        self.submit_message(input);
+                        // submit_message 会重置计数器为 0，恢复为递增后的值
+                        self.session_mgr.sessions[self.session_mgr.active]
+                            .agent
+                            .auto_compact_resubmit_count = new_count;
+                    } else {
+                        tracing::warn!(
+                            "auto-compact: reached max re-submit count ({}), stopping",
+                            MAX_AUTO_COMPACT_RESUBMITS
+                        );
+                        let vm = MessageViewModel::system(
+                            "上下文压缩后仍超出限制，已停止自动继续。请使用 /compact 手动压缩或 /clear 清空历史。"
+                                .to_string(),
+                        );
+                        self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+                    }
                 }
 
                 (true, false, true)

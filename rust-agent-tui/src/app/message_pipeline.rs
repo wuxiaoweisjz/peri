@@ -1170,15 +1170,127 @@ mod tests {
             tail_vms
         );
 
-        // 应包含 ToolBlock
-        let has_tool = tail_vms
-            .iter()
-            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { .. }));
+        // Read 工具被 aggregate_tool_groups 折叠为 ToolCallGroup
+        let has_tool = tail_vms.iter().any(|vm| {
+            matches!(
+                vm,
+                MessageViewModel::ToolCallGroup { tools, .. } if tools.iter().any(|t| t.tool_name == "Read")
+            )
+        });
         assert!(
             has_tool,
-            "ToolStart 后应有 ToolBlock，实际 VMs: {:?}",
+            "ToolStart 后应有 ToolCallGroup(Read)，实际 VMs: {:?}",
             tail_vms
         );
+    }
+
+    /// 端到端：多轮工具调用中 AI 文本可见性
+    /// Chunk → ToolStart → ToolEnd → StateSnapshot → Chunk → ToolStart → Done
+    #[test]
+    fn test_e2e_text_visible_between_tool_calls() {
+        use rust_create_agent::messages::{MessageContent, MessageId, ToolCallRequest};
+
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        pipeline.begin_round();
+
+        // 1. AI 输出文本
+        pipeline.handle_event(AgentEvent::AssistantChunk("Let me check the file".into()));
+        let tail1 = pipeline.build_tail_vms();
+        assert!(has_text(&tail1, "Let me check"), "步骤1: chunk 后应有文本");
+
+        // 2. ToolStart
+        pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: "tc1".into(),
+            name: "Read".into(),
+            display: "ReadFile".into(),
+            args: "main.rs".into(),
+            input: json!({"path": "/tmp/main.rs"}),
+        });
+        let tail2 = pipeline.build_tail_vms();
+        assert!(
+            has_text(&tail2, "Let me check"),
+            "步骤2: ToolStart 后文本应保留"
+        );
+
+        // 3. ToolEnd
+        pipeline.handle_event(AgentEvent::ToolEnd {
+            tool_call_id: "tc1".into(),
+            name: "Read".into(),
+            output: "fn main() {}".into(),
+            is_error: false,
+        });
+        let tail3 = pipeline.build_tail_vms();
+        assert!(
+            has_text(&tail3, "Let me check"),
+            "步骤3: ToolEnd 后文本应保留"
+        );
+
+        // 4. StateSnapshot（清空流式缓冲，切换到 reconcile 路径）
+        pipeline.set_completed(vec![
+            BaseMessage::human("read file"),
+            BaseMessage::ai_with_tool_calls(
+                MessageContent::text("Let me check the file"),
+                vec![ToolCallRequest::new(
+                    "tc1",
+                    "Read",
+                    json!({"path": "/tmp/main.rs"}),
+                )],
+            ),
+            BaseMessage::Tool {
+                id: MessageId::new(),
+                tool_call_id: "tc1".to_string(),
+                content: MessageContent::text("fn main() {}"),
+                is_error: false,
+            },
+        ]);
+        let tail4 = pipeline.build_tail_vms();
+        assert!(
+            has_text(&tail4, "Let me check"),
+            "步骤4: StateSnapshot 后 reconcile 应包含文本, VMs: {:?}",
+            tail4
+        );
+
+        // 5. 新的 AI 文本（工具之间）
+        pipeline.handle_event(AgentEvent::AssistantChunk("Now let me write tests".into()));
+        let tail5 = pipeline.build_tail_vms();
+        assert!(
+            has_text(&tail5, "Now let me write tests"),
+            "步骤5: 新 chunk 后应有新文本"
+        );
+        assert!(
+            has_text(&tail5, "Let me check"),
+            "步骤5: 旧文本也应保留（reconcile）"
+        );
+
+        // 6. 第二个 ToolStart
+        pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: "tc2".into(),
+            name: "Write".into(),
+            display: "WriteFile".into(),
+            args: "test.rs".into(),
+            input: json!({"path": "/tmp/test.rs"}),
+        });
+        let tail6 = pipeline.build_tail_vms();
+        assert!(
+            has_text(&tail6, "Now let me write tests"),
+            "步骤6: 第二个 ToolStart 后新文本应保留"
+        );
+        assert!(
+            has_text(&tail6, "Let me check"),
+            "步骤6: 旧文本也应保留（reconcile）"
+        );
+    }
+
+    fn has_text(vms: &[MessageViewModel], text: &str) -> bool {
+        vms.iter().any(|vm| {
+            if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+                blocks
+                    .iter()
+                    .any(|b| matches!(b, ContentBlockView::Text { raw, .. } if raw.contains(text)))
+            } else {
+                false
+            }
+        })
     }
 
     /// 验证尾部重建与全量转换一致性

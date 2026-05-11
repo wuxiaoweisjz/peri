@@ -44,6 +44,8 @@ where
     pub(crate) tool_filter: Option<fn(&str) -> bool>,
     /// 共享工具注册表：包含所有工具（包括 deferred），供 ExecuteExtraTool 代理执行使用
     pub(crate) shared_tools: Option<Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>>,
+    /// micro_compact 配置（None = 不在循环内自动压缩）
+    pub(crate) compact_config: Option<crate::agent::compact::CompactConfig>,
 }
 
 impl<L: ReactLLM, S: State> ReActAgent<L, S> {
@@ -59,6 +61,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             notification_rx: None,
             tool_filter: None,
             shared_tools: None,
+            compact_config: None,
         }
     }
 
@@ -132,6 +135,15 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         tools: Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
     ) -> Self {
         self.shared_tools = Some(tools);
+        self
+    }
+
+    /// 设置 micro_compact 配置
+    ///
+    /// 启用后，ReAct 循环在每次工具调用完成后检查上下文用量，
+    /// 超过 warning 阈值时自动执行 micro_compact（压缩旧工具结果）。
+    pub fn with_compact_config(mut self, config: crate::agent::compact::CompactConfig) -> Self {
+        self.compact_config = Some(config);
         self
     }
 
@@ -240,6 +252,24 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     &mut last_message_count,
                 )
                 .await;
+
+                // micro_compact：工具调用后检查上下文用量，压缩旧工具结果释放空间
+                if let Some(ref config) = self.compact_config {
+                    if let Some(ref budget) = self.context_budget {
+                        if budget.should_warn(state.token_tracker()) {
+                            let cleared = crate::agent::compact::micro_compact_enhanced(
+                                config,
+                                state.messages_mut(),
+                            );
+                            if cleared > 0 {
+                                tracing::info!(
+                                    cleared,
+                                    "micro-compact: cleared stale tool results in ReAct loop"
+                                );
+                            }
+                        }
+                    }
+                }
             } else {
                 // 最终回答
                 let output = self::final_answer::handle_final_answer(
