@@ -79,7 +79,7 @@ impl LspClient {
     /// 启动 LSP 服务器并完成 initialize/initialized 握手
     pub async fn start(&self, root_uri: &str) -> Result<(), LspError> {
         {
-            let mut state = self.state.write();
+            let state = self.state.read();
             if *state == ServerState::Running {
                 return Ok(());
             }

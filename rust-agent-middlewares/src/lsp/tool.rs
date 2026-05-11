@@ -107,18 +107,17 @@ impl LspTool {
         file_path: &str,
     ) -> Result<Arc<perihelion_lsp::client::LspClient>, LspToolError> {
         match self.pool.server_for_file(file_path) {
-            Some(s) if s.is_ready() => return Ok(s),
+            Some(s) if s.is_ready() => Ok(s),
             Some(_) => {
                 // 服务器存在但未就绪，按需初始化
                 self.pool
                     .ensure_server_for_file(file_path)
                     .await
                     .map_err(|e| LspToolError::RequestFailed(e.to_string()))?;
-                return self
-                    .pool
+                self.pool
                     .server_for_file(file_path)
                     .filter(|s| s.is_ready())
-                    .ok_or(LspToolError::NotReady);
+                    .ok_or(LspToolError::NotReady)
             }
             None => {
                 // 没有匹配此文件扩展名的服务器
@@ -126,12 +125,12 @@ impl LspTool {
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("(无扩展名)");
-                return Err(LspToolError::NoServerForExtension {
+                Err(LspToolError::NoServerForExtension {
                     file_path: file_path.to_string(),
                     extension: ext.to_string(),
-                });
+                })
             }
-        };
+        }
     }
 
     /// 获取任意一个已就绪的服务器
