@@ -172,3 +172,5 @@ process.md
 .claude/hooks
 
 vendor/
+
+skills/*-workspace
