@@ -1,8 +1,10 @@
 # 多轮对话中 AI message 和 thinking 在进行时不可见
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-05-13
+
+已通过重构消息管线完成
 
 ## 问题描述
 
@@ -48,6 +50,7 @@
 ### 可能原因分析
 
 1. **`has_snapshot_this_round` 判断问题**：
+
    ```rust
    // message_pipeline.rs:640
    if self.has_snapshot_this_round {
@@ -56,6 +59,7 @@
        // 无 snapshot：跳过 reconcile
    }
    ```
+
    如果 `has_snapshot_this_round` 在多轮对话中的状态不正确，可能导致流式内容不被包含在 `tail_vms` 中。
 
 2. **流式内容与 reconcile 的分离**：
@@ -64,6 +68,7 @@
    - 如果 `has_streaming_content()` 返回 false，流式 bubble 不会被添加
 
 3. **`build_streaming_bubble()` 条件**：
+
    ```rust
    // message_pipeline.rs:666
    if self.has_streaming_content() {
