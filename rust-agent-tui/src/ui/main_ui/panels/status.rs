@@ -1,7 +1,7 @@
 use crate::app::status_panel::{StatusPanel, STATUS_TAB_CONTEXT, STATUS_TAB_COST};
 use crate::app::App;
 use crate::ui::theme;
-use perihelion_widgets::{tab_bar::TabBar, BorderedPanel};
+use perihelion_widgets::BorderedPanel;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -35,8 +35,24 @@ pub(crate) fn render_status_panel(f: &mut Frame, panel: &StatusPanel, app: &App,
         height: inner.height.saturating_sub(tab_height + 1),
     };
 
-    let mut tab_state = panel.tab.clone();
-    f.render_stateful_widget(TabBar::new(), tab_area, &mut tab_state);
+    // 手动渲染 tab 标签（仿照 plugin 面板风格）
+    let tab_labels: Vec<Span> = ["Cost", "Context"]
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let is_active = panel.tab.active() == i;
+            let style = if is_active {
+                Style::default()
+                    .fg(theme::TEXT)
+                    .bg(theme::THINKING)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::MUTED)
+            };
+            Span::styled(format!(" {} ", label), style)
+        })
+        .collect();
+    f.render_widget(Paragraph::new(Line::from(tab_labels)), tab_area);
 
     match panel.tab.active() {
         STATUS_TAB_COST => {
@@ -249,37 +265,86 @@ fn build_bar_chart_lines(
     lines
 }
 
-fn build_x_axis_labels(
-    _total_len: usize,
-    visible_start: usize,
-    visible_len: usize,
-) -> Line<'static> {
+/// 构建缓存命中率柱状图（y 轴百分比刻度，█ 填充，与 token 柱状图风格统一）
+fn build_cache_rate_lines(
+    history: &[rust_create_agent::agent::token::RequestRecord],
+    chart_width: usize,
+    chart_height: usize,
+) -> Vec<Line<'static>> {
+    use ratatui::style::Style;
+    use ratatui::text::Span;
+
+    if history.is_empty() || chart_height == 0 || chart_width == 0 {
+        return vec![];
+    }
+
+    let start = history.len().saturating_sub(chart_width);
+    let visible = &history[start..];
+
+    // y 轴固定 0-100%
+    let y_max: u64 = 100;
+
+    let mut lines = Vec::with_capacity(chart_height + 1);
+
+    for row in (0..chart_height).rev() {
+        let row_bottom = y_max * row as u64 / chart_height as u64;
+        let label = format!("{}%", y_max * (row + 1) as u64 / chart_height as u64);
+
+        let mut spans: Vec<Span> = vec![Span::styled(
+            format!("{:>6}┤", label),
+            Style::default().fg(theme::MUTED),
+        )];
+
+        for record in visible {
+            let rate = (record.cache_hit_rate() * 100.0) as u64;
+            if rate < row_bottom {
+                spans.push(Span::raw(" "));
+            } else {
+                spans.push(Span::styled("█", Style::default().fg(theme::SAGE)));
+            }
+        }
+
+        lines.push(Line::from(spans));
+    }
+
+    // 底部 x 轴线
+    let mut axis_spans: Vec<Span> = vec![Span::styled(
+        "    0%┼".to_string(),
+        Style::default().fg(theme::MUTED),
+    )];
+    for _ in visible {
+        axis_spans.push(Span::styled("─", Style::default().fg(theme::DIM)));
+    }
+    lines.push(Line::from(axis_spans));
+
+    lines
+}
+
+fn build_x_axis_labels(visible_start: usize, visible_len: usize) -> Line<'static> {
     use ratatui::style::Style;
     use ratatui::text::Span;
 
     let label_every = if visible_len <= 10 {
         1
     } else if visible_len <= 20 {
-        2
-    } else if visible_len <= 50 {
         5
-    } else {
+    } else if visible_len <= 50 {
         10
+    } else {
+        20
     };
 
     let mut spans: Vec<Span> = vec![Span::raw("       ")];
 
     for i in 0..visible_len {
         let req_num = visible_start + i + 1;
-        if (req_num - 1).is_multiple_of(label_every) || i == visible_len - 1 {
-            let s = if req_num <= 9 {
-                format!("{} ", req_num)
-            } else {
-                req_num.to_string().chars().take(2).collect::<String>()
-            };
-            spans.push(Span::styled(s, Style::default().fg(theme::MUTED)));
+        if req_num.is_multiple_of(label_every) || i == 0 || i == visible_len - 1 {
+            spans.push(Span::styled(
+                req_num.to_string(),
+                Style::default().fg(theme::MUTED),
+            ));
         } else {
-            spans.push(Span::raw("  "));
+            spans.push(Span::raw(" "));
         }
     }
 
@@ -363,16 +428,17 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let summary_h = 2u16;
+    let summary_h = 1u16;
     let legend_h = 1u16;
     let x_axis_h = 1u16;
-    let spark_title_h = 1u16;
-    let spark_h = 3u16;
-    let blanks = 2u16;
+    let rate_title_h = 1u16;
+    let rate_h = 4u16;
+    let rate_x_axis_h = 1u16;
+    let blanks = 1u16;
 
-    let chart_h = area
-        .height
-        .saturating_sub(summary_h + legend_h + x_axis_h + spark_title_h + spark_h + blanks);
+    let chart_h = area.height.saturating_sub(
+        summary_h + legend_h + x_axis_h + rate_title_h + rate_h + rate_x_axis_h + blanks,
+    );
 
     let skip_chart = chart_h < 3;
     let actual_blanks = if skip_chart { 1 } else { blanks };
@@ -428,7 +494,6 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         let visible_len = history.len() - visible_start;
         f.render_widget(
             Paragraph::new(Text::from(vec![build_x_axis_labels(
-                history.len(),
                 visible_start,
                 visible_len,
             )])),
@@ -444,12 +509,12 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
         y += actual_blanks;
     }
 
-    // Sparkline 标题
+    // 缓存命中率柱状图标题 + 图例
     f.render_widget(
-        Paragraph::new(Text::from(vec![Line::from(Span::styled(
-            "  Cache Hit Rate",
-            Style::default().fg(theme::MUTED),
-        ))])),
+        Paragraph::new(Text::from(vec![Line::from(vec![
+            Span::styled("  Cache Hit Rate", Style::default().fg(theme::MUTED)),
+            Span::styled("  █hit", Style::default().fg(theme::SAGE)),
+        ])])),
         Rect {
             x: area.x,
             y,
@@ -457,24 +522,35 @@ fn render_context_tab(f: &mut Frame, app: &App, area: Rect) {
             height: 1,
         },
     );
-    y += spark_title_h;
+    y += rate_title_h;
 
-    // Sparkline
-    let spark_data: Vec<u64> = history
-        .iter()
-        .map(|r| (r.cache_hit_rate() * 100.0) as u64)
-        .collect();
-    let sparkline = ratatui::widgets::Sparkline::default()
-        .data(spark_data)
-        .max(100)
-        .style(Style::default().fg(theme::THINKING));
+    // 缓存命中率折线图（带 y 轴百分比刻度）
+    let rate_width = (area.width as usize).saturating_sub(7);
+    let rate_start = history.len().saturating_sub(rate_width);
+    let rate_lines = build_cache_rate_lines(history, rate_width, rate_h as usize);
     f.render_widget(
-        sparkline,
+        Paragraph::new(Text::from(rate_lines)),
         Rect {
-            x: area.x + 2,
+            x: area.x,
             y,
-            width: area.width.saturating_sub(4),
-            height: spark_h,
+            width: area.width,
+            height: rate_h,
+        },
+    );
+    y += rate_h;
+
+    // 折线图 x 轴标签
+    let rate_visible_len = history.len() - rate_start;
+    f.render_widget(
+        Paragraph::new(Text::from(vec![build_x_axis_labels(
+            rate_start,
+            rate_visible_len,
+        )])),
+        Rect {
+            x: area.x,
+            y,
+            width: area.width,
+            height: 1,
         },
     );
 }
