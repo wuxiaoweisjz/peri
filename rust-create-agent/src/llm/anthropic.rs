@@ -8,6 +8,16 @@ use crate::llm::types::{LlmRequest, LlmResponse, StopReason};
 use crate::messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest};
 use crate::tools::BaseTool;
 
+/// system prompt 边界标记：之前的内容可被 Anthropic prompt cache 命中，
+/// 之后的内容变化不会破坏前缀缓存。
+const SYSTEM_PROMPT_DYNAMIC_BOUNDARY: &str = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+
+/// system prompt 的独立缓存块
+struct SystemPromptBlock {
+    text: String,
+    cache_control: bool,
+}
+
 /// ChatAnthropic - Anthropic Messages API 实现
 pub struct ChatAnthropic {
     pub api_key: String,
@@ -144,11 +154,47 @@ impl ChatAnthropic {
         }
     }
 
+    /// 将 system prompt 文本按边界标记拆分为缓存块。
+    ///
+    /// 边界标记 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 之前的内容标记为可缓存，
+    /// 之后的内容不标记缓存（动态内容变化不会破坏前缀缓存）。
+    fn split_system_blocks(text: &str) -> Vec<SystemPromptBlock> {
+        if text.is_empty() {
+            return Vec::new();
+        }
+        if let Some(idx) = text.find(SYSTEM_PROMPT_DYNAMIC_BOUNDARY) {
+            let mut blocks = Vec::new();
+            let static_text = text[..idx].trim().to_string();
+            let dynamic_text = text[idx + SYSTEM_PROMPT_DYNAMIC_BOUNDARY.len()..]
+                .trim()
+                .to_string();
+            if !static_text.is_empty() {
+                blocks.push(SystemPromptBlock {
+                    text: static_text,
+                    cache_control: true,
+                });
+            }
+            if !dynamic_text.is_empty() {
+                blocks.push(SystemPromptBlock {
+                    text: dynamic_text,
+                    cache_control: false,
+                });
+            }
+            blocks
+        } else {
+            // 无边界标记 → 单块，不缓存
+            vec![SystemPromptBlock {
+                text: text.to_string(),
+                cache_control: false,
+            }]
+        }
+    }
+
     /// 将 BaseMessage 列表转为 Anthropic messages 格式
     ///
     /// - System 消息提取到顶层 system 字段
     /// - Tool 消息合并为 user content blocks
-    fn messages_to_anthropic(messages: &[BaseMessage]) -> (Vec<Value>, Option<String>) {
+    fn messages_to_anthropic(messages: &[BaseMessage]) -> (Vec<Value>, Vec<SystemPromptBlock>) {
         let mut system_parts: Vec<String> = Vec::new();
         let mut result: Vec<Value> = Vec::new();
 
@@ -241,12 +287,9 @@ impl ChatAnthropic {
             }
         }
 
-        let system_text = if system_parts.is_empty() {
-            None
-        } else {
-            Some(system_parts.join("\n\n"))
-        };
-        (result, system_text)
+        let system_text = system_parts.join("\n\n");
+        let system_blocks = Self::split_system_blocks(&system_text);
+        (result, system_blocks)
     }
 
     /// 对 messages 列表中的 user 消息追加 cache_control 断点
@@ -385,7 +428,7 @@ impl BaseModel for ChatAnthropic {
             None => "https://api.anthropic.com/v1/messages".to_string(),
         };
 
-        let tools_json: Vec<Value> = request
+        let mut tools_json: Vec<Value> = request
             .tools
             .iter()
             .map(|t| {
@@ -397,6 +440,14 @@ impl BaseModel for ChatAnthropic {
             })
             .collect();
 
+        // Anthropic 推荐：对最后一个 tool 加 cache_control，使 system + tools 整段被缓存为稳定前缀。
+        // 这样 tools 数组（通常 10000+ tokens）不会在每次调用时重新处理。
+        if self.enable_cache {
+            if let Some(last_tool) = tools_json.last_mut() {
+                last_tool["cache_control"] = json!({ "type": "ephemeral" });
+            }
+        }
+
         let (mut messages, system_from_msgs) = Self::messages_to_anthropic(&request.messages);
 
         // 注意：不需要注入占位 thinking block。
@@ -405,13 +456,16 @@ impl BaseModel for ChatAnthropic {
         // 之前轮次的 thinking blocks 会被 API 自动剥离，不影响上下文。
         // 已有的 thinking blocks 通过 ContentBlock::Reasoning → json 序列化正确回传。
 
-        // 合并：消息列表中的 System（来自中间件，如 agent.md）在前，
-        // request.system（BaseModelReactLLM 设置的基础提示词）在后
-        let system = match (system_from_msgs, request.system) {
-            (Some(from_msgs), Some(base)) => Some(format!("{}\n\n{}", from_msgs, base)),
-            (Some(from_msgs), None) => Some(from_msgs),
-            (None, base) => base,
-        };
+        // 合并 system blocks：消息列表中的 System（中间件注入）+ request.system
+        let mut system_blocks = system_from_msgs;
+        if let Some(ref base) = request.system {
+            if !base.is_empty() {
+                system_blocks.push(SystemPromptBlock {
+                    text: base.clone(),
+                    cache_control: false,
+                });
+            }
+        }
         let max_tokens = request.max_tokens.unwrap_or(4096);
 
         // 开启缓存时：对最后一条消息的最后一个 block 加 cache_control
@@ -426,16 +480,32 @@ impl BaseModel for ChatAnthropic {
         });
 
         if self.enable_cache {
-            // system 升级为 blocks 数组格式以支持 cache_control
-            if let Some(ref sys_text) = system {
-                body["system"] = json!([{
-                    "type": "text",
-                    "text": sys_text,
-                    "cache_control": { "type": "ephemeral" }
-                }]);
+            // system 多块格式：静态块标记 cache_control，动态块不标记
+            if !system_blocks.is_empty() {
+                let blocks_json: Vec<Value> = system_blocks
+                    .iter()
+                    .map(|b| {
+                        let mut block = json!({"type": "text", "text": &b.text});
+                        if b.cache_control {
+                            block["cache_control"] = json!({"type": "ephemeral"});
+                        }
+                        block
+                    })
+                    .collect();
+                body["system"] = Value::Array(blocks_json);
             }
-        } else if let Some(sys) = &system {
-            body["system"] = json!(sys);
+        } else if !system_blocks.is_empty() {
+            // 不启用缓存：合并为单个字符串，移除边界标记
+            let text = system_blocks
+                .iter()
+                .map(|b| b.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+                .replace(SYSTEM_PROMPT_DYNAMIC_BOUNDARY, "");
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                body["system"] = json!(trimmed);
+            }
         }
 
         if !tools_json.is_empty() {
@@ -878,6 +948,88 @@ mod tests {
     fn test_without_cache() {
         let llm = ChatAnthropic::new("key", "model").without_cache();
         assert!(!llm.enable_cache);
+    }
+
+    // ── split_system_blocks 测试 ─────────────────────────────────────────
+
+    #[test]
+    fn test_split_system_blocks_with_boundary() {
+        let text = "static content\n\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n\ndynamic content";
+        let blocks = ChatAnthropic::split_system_blocks(text);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "static content");
+        assert!(blocks[0].cache_control);
+        assert_eq!(blocks[1].text, "dynamic content");
+        assert!(!blocks[1].cache_control);
+    }
+
+    #[test]
+    fn test_split_system_blocks_without_boundary() {
+        let text = "no boundary here";
+        let blocks = ChatAnthropic::split_system_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].text, "no boundary here");
+        assert!(!blocks[0].cache_control);
+    }
+
+    #[test]
+    fn test_split_system_blocks_empty() {
+        let blocks = ChatAnthropic::split_system_blocks("");
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn test_split_system_blocks_empty_static_part() {
+        let text = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n\ndynamic only";
+        let blocks = ChatAnthropic::split_system_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].text, "dynamic only");
+        assert!(!blocks[0].cache_control);
+    }
+
+    #[test]
+    fn test_split_system_blocks_empty_dynamic_part() {
+        let text = "static only\n\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n\n";
+        let blocks = ChatAnthropic::split_system_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].text, "static only");
+        assert!(blocks[0].cache_control);
+    }
+
+    #[test]
+    fn test_split_system_blocks_multiple_sections() {
+        let text = "core rules\n\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n\ndate: 2026-05-13\n\ncwd: /tmp\n\nmiddleware content";
+        let blocks = ChatAnthropic::split_system_blocks(text);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "core rules");
+        assert!(blocks[0].cache_control);
+        assert!(blocks[1].text.contains("date: 2026-05-13"));
+        assert!(blocks[1].text.contains("middleware content"));
+        assert!(!blocks[1].cache_control);
+    }
+
+    #[test]
+    fn test_messages_to_anthropic_system_blocks() {
+        let messages = vec![
+            BaseMessage::system("static\n\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n\ndynamic"),
+            BaseMessage::human("hello"),
+        ];
+        let (msgs, blocks) = ChatAnthropic::messages_to_anthropic(&messages);
+        assert_eq!(msgs.len(), 1); // 只有 user 消息
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].cache_control);
+        assert!(!blocks[1].cache_control);
+    }
+
+    #[test]
+    fn test_messages_to_anthropic_no_boundary() {
+        let messages = vec![
+            BaseMessage::system("plain system prompt"),
+            BaseMessage::human("hello"),
+        ];
+        let (_msgs, blocks) = ChatAnthropic::messages_to_anthropic(&messages);
+        assert_eq!(blocks.len(), 1);
+        assert!(!blocks[0].cache_control);
     }
 
     #[test]

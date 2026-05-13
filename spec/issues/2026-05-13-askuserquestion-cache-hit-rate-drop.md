@@ -1,6 +1,6 @@
 # AskUserQuestion 导致缓存命中率极速下降
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-05-13
 
@@ -68,6 +68,10 @@
 - [ ] 检查 `ToolSearchMiddleware.cached_prompt()` 是否稳定
 - [ ] 检查是否有中间件在 `AskUserQuestion` 调用时动态生成消息
 - [ ] 检查 `AskUserQuestion` 的 ToolResult 是否被正确处理
+
+## 修复记录
+
+根因已由 `2026-05-13-system-prompt-dynamic-cache-invalidation.md` 修复：system prompt 的 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记将静态内容（~80% token）与动态内容分离，静态核心始终命中缓存。AskUserQuestion 调用时缓存下降是 system prompt 动态占位符（`{{date}}`/`{{cwd}}`）导致整段缓存失效的子集表现。
 
 ## 相关 Issue
 

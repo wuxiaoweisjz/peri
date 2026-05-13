@@ -87,7 +87,7 @@ pub fn build_system_prompt(
 ) -> String {
     let env = PromptEnv::detect(cwd);
 
-    // 静态段落（编译时嵌入，按编号顺序）
+    // 静态段落（编译时嵌入，按编号顺序）—— 01-06 为缓存稳定内容
     let static_sections: &[&str] = &[
         include_str!("../prompts/sections/01_intro.md"),
         include_str!("../prompts/sections/02_system.md"),
@@ -95,29 +95,31 @@ pub fn build_system_prompt(
         include_str!("../prompts/sections/04_actions.md"),
         include_str!("../prompts/sections/05_using_tools.md"),
         include_str!("../prompts/sections/06_tone_style.md"),
-        include_str!("../prompts/sections/07_env.md"),
     ];
 
-    // Feature-gated 段落（条件拼接）
-    let mut gated_sections: Vec<&str> = Vec::new();
+    // 动态段落（含环境变量占位符、feature-gated 段落）—— 边界标记之后，不参与缓存
+    let mut dynamic_sections: Vec<&str> = Vec::new();
+    dynamic_sections.push(include_str!("../prompts/sections/07_env.md"));
     if features.hitl_enabled {
-        gated_sections.push(include_str!("../prompts/sections/10_hitl.md"));
+        dynamic_sections.push(include_str!("../prompts/sections/10_hitl.md"));
     }
     if features.subagent_enabled {
-        gated_sections.push(include_str!("../prompts/sections/11_subagent.md"));
+        dynamic_sections.push(include_str!("../prompts/sections/11_subagent.md"));
     }
     if features.cron_enabled {
-        gated_sections.push(include_str!("../prompts/sections/12_cron.md"));
+        dynamic_sections.push(include_str!("../prompts/sections/12_cron.md"));
     }
     if features.skills_enabled {
-        gated_sections.push(include_str!("../prompts/sections/13_skills.md"));
+        dynamic_sections.push(include_str!("../prompts/sections/13_skills.md"));
     }
 
     let overrides_block = overrides
         .map(build_agent_overrides_block)
         .unwrap_or_default();
 
-    // 合成：覆盖块在最前面，然后是静态段落，最后是 feature-gated 段落
+    // 合成：覆盖块 + 静态段落 + 边界标记 + 动态段落
+    // 边界标记之前的全部内容可被 Anthropic prompt cache 命中；
+    // 边界标记之后的内容（日期、cwd 等）变化不会破坏前缀缓存。
     let mut result = String::new();
     if !overrides_block.is_empty() {
         result.push_str(&overrides_block);
@@ -128,7 +130,8 @@ pub fn build_system_prompt(
         }
         result.push_str(section);
     }
-    for section in &gated_sections {
+    result.push_str("\n\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__");
+    for section in &dynamic_sections {
         result.push_str("\n\n");
         result.push_str(section);
     }
@@ -379,6 +382,54 @@ mod tests {
         assert!(features.subagent_enabled);
         assert!(features.cron_enabled);
         assert!(features.skills_enabled);
+    }
+
+    // ─── boundary marker tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_boundary_marker_present() {
+        let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+        assert!(
+            result.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"),
+            "system prompt 应包含边界标记"
+        );
+    }
+
+    #[test]
+    fn test_boundary_marker_before_dynamic_content() {
+        let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[]);
+        let boundary_pos = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
+        // 06_tone_style 在边界之前
+        assert!(
+            result[..boundary_pos].contains("# Tone and style"),
+            "06_tone_style 应在边界标记之前"
+        );
+        // 07_env 在边界之后
+        assert!(
+            result[boundary_pos..].contains("Working directory"),
+            "07_env 应在边界标记之后"
+        );
+    }
+
+    #[test]
+    fn test_boundary_marker_with_all_features() {
+        let features = PromptFeatures {
+            hitl_enabled: true,
+            subagent_enabled: true,
+            cron_enabled: true,
+            skills_enabled: true,
+        };
+        let result = build_system_prompt(None, "/tmp", features, &[]);
+        let boundary_pos = result.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
+        // feature-gated 段落都应在边界之后
+        assert!(
+            result[boundary_pos..].contains("Human-in-the-Loop"),
+            "HITL 段落应在边界标记之后"
+        );
+        assert!(
+            result[boundary_pos..].contains("SubAgent Delegation"),
+            "SubAgent 段落应在边界标记之后"
+        );
     }
 
     // ─── available_agents tests ──────────────────────────────────────────────

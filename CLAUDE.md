@@ -46,7 +46,7 @@ lefthook run pre-commit              # pre-commit（fmt/check/clippy）
 
 **TUI 消息渲染**（`rust-agent-tui`）：所有消息更新通过统一 `RebuildAll` 路径触发（无增量更新）。`MessagePipeline`（`message_pipeline.rs`）维护规范状态，`build_tail_vms()` 构建尾部 VMs，`messages_to_view_models()` 是唯一转换入口。流式文本通过 100ms 节流触发 RebuildAll，非流式事件立即触发。独立 `RenderThread` 处理渲染，通过 `RenderCache(RwLock)` 与 UI 线程同步。
 
-**系统提示词**：`build_system_prompt(overrides, cwd, features)` 合成，段落文件位于 `rust-agent-tui/prompts/sections/`。`PromptFeatures` 控制条件段落注入。
+**系统提示词**：`build_system_prompt(overrides, cwd, features)` 合成，段落文件位于 `rust-agent-tui/prompts/sections/`。`PromptFeatures` 控制条件段落注入。静态段落（01-06）与动态段落（07_env + feature-gated）通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前的内容被 Anthropic prompt cache 命中，标记后的内容变化不影响前缀缓存。`messages_to_anthropic()` 中 `split_system_blocks()` 负责拆分。
 
 ## Thinking/推理模式
 
@@ -64,7 +64,7 @@ lefthook run pre-commit              # pre-commit（fmt/check/clippy）
 
 **[TRAP]** `Box<dyn BaseTool>` 不能直接转 `Arc<dyn BaseTool>`，用 `box_to_arc()` 通过 `ToolWrapper(ManuallyDrop<Box>)` 透传。**绝不能用 `Box::into_raw` + `Arc::from_raw`**——布局不同导致 UB。
 
-**[TRAP]** Prompt Cache 前缀稳定性——两个已踩坑的违反模式：（1）HashMap 迭代顺序不确定导致序列化内容跨进程变化（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-deferred-tool-list-nondeterministic-order）；（2）`prepend_message` 向消息头部插入内容改变了 `cache_control` 标记的第一条 user 消息位置（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-skill-preload-invalidates-prompt-cache）。**通用原则**：所有参与缓存前缀的数据（system prompt、tools 数组、消息顺序）必须保证跨请求稳定，优先用 `add_message`（尾部追加）而非 `prepend_message`（头部插入）。
+**[TRAP]** Prompt Cache 前缀稳定性——三个已踩坑的违反模式：（1）HashMap 迭代顺序不确定导致序列化内容跨进程变化（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-deferred-tool-list-nondeterministic-order）；（2）`prepend_message` 向消息头部插入内容改变了 `cache_control` 标记的第一条 user 消息位置（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-skill-preload-invalidates-prompt-cache）；（3）system prompt 内动态占位符（`{{date}}` 每日变化、`{{cwd}}` 跨项目变化）导致整个缓存段失效（详见 spec/issues/2026-05-13-system-prompt-dynamic-cache-invalidation.md）。**通用原则**：所有参与缓存前缀的数据（system prompt、tools 数组、消息顺序）必须保证跨请求稳定。具体规则——（a）system prompt 中用 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔静态/动态内容，标记前可缓存，标记后不缓存；（b）优先用 `add_message`（尾部追加）而非 `prepend_message`（头部插入）；（c）动态占位符（日期、cwd、环境变量）放在边界标记之后；（d）middleware 注入的 System 消息天然在边界标记之后（非缓存块）。
 
 ## 中间件链执行顺序
 

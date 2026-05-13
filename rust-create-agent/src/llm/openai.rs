@@ -260,10 +260,10 @@ impl ChatOpenAI {
         }
 
         if !system_parts.is_empty() {
-            result.insert(
-                0,
-                json!({ "role": "system", "content": system_parts.join("\n\n") }),
-            );
+            let system_text = system_parts
+                .join("\n\n")
+                .replace("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__", "");
+            result.insert(0, json!({ "role": "system", "content": system_text }));
         }
 
         result
