@@ -1,6 +1,6 @@
 # 工具调用参数错误（如 Read - Missing file_path）导致 Agent 停止而非自动重试
 
-**状态**：Open — 部分修复：ToolNotFound/ToolExecutionFailed 已不再设 deferred_error，但 after_tool 中间件错误（run_after_tool 返回 Err）仍设 deferred_error 导致 Agent 停止。
+**状态**：Fixed — 部分修复：ToolNotFound/ToolExecutionFailed 已不再设 deferred_error，但 after_tool 中间件错误（run_after_tool 返回 Err）仍设 deferred_error 导致 Agent 停止。
 **优先级**：高
 **创建日期**：2026-05-15
 
@@ -33,6 +33,7 @@ dispatch_tools() 阶段三结果处理循环（tool_dispatch.rs:175-247）
 `peri-agent/src/agent/executor/tool_dispatch.rs` 阶段三结果处理循环
 
 ~~原问题代码（已修复）~~：
+
 ```rust
 Err(ref e) => {
     let _ = agent.chain.run_on_error(state, e).await;
@@ -44,12 +45,14 @@ Err(ref e) => {
 **截至 2026-05-15**：ToolNotFound（行 179-186）和 ToolExecutionFailed（行 188-192）**已不再设置 deferred_error**，错误 ToolResult 正常写入，Agent 继续循环。✅
 
 **仍残留**：after_tool 中间件错误（行 211-218）仍设 deferred_error：
+
 ```rust
 if let Err(e) = agent.chain.run_after_tool(state, &modified_call, &result).await {
     let _ = agent.chain.run_on_error(state, &e).await;
     deferred_error = deferred_error.or(Some(e.to_string())); // ← 仍存在
 }
 ```
+
 循环结束后 deferred_error 为 Some 时返回 MiddlewareError 终止 Agent（行 242-247）。
 
 ## 期望行为

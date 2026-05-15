@@ -1,6 +1,6 @@
 # RISC-V (riscv64gc-unknown-linux-gnu) 交叉编译支持
 
-**状态**：In Progress
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-15
 

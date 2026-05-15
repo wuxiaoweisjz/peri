@@ -54,6 +54,8 @@ pub enum ContentBlock {
 
     /// 工具执行结果
     ToolResult {
+        /// 内容块唯一标识（部分 provider 如 GLM Anthropic 兼容端口要求此字段）
+        id: Option<String>,
         tool_use_id: String,
         content: Vec<ContentBlock>,
         is_error: bool,
@@ -112,12 +114,16 @@ impl Serialize for ContentBlock {
                 m.end()
             }
             Self::ToolResult {
+                id,
                 tool_use_id,
                 content,
                 is_error,
             } => {
                 let mut m = s.serialize_map(None)?;
                 m.serialize_entry("type", "tool_result")?;
+                if let Some(id) = id {
+                    m.serialize_entry("id", id)?;
+                }
                 m.serialize_entry("tool_use_id", tool_use_id)?;
                 m.serialize_entry("content", content)?;
                 m.serialize_entry("is_error", is_error)?;
@@ -186,6 +192,7 @@ impl<'de> Deserialize<'de> for ContentBlock {
                 Ok(Self::ToolUse { id, name, input })
             }
             "tool_result" => {
+                let id = value.get("id").and_then(|v| v.as_str()).map(String::from);
                 let tool_use_id = value
                     .get("tool_use_id")
                     .and_then(|v| v.as_str())
@@ -202,6 +209,7 @@ impl<'de> Deserialize<'de> for ContentBlock {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 Ok(Self::ToolResult {
+                    id,
                     tool_use_id,
                     content,
                     is_error,
@@ -262,6 +270,7 @@ impl ContentBlock {
         is_error: bool,
     ) -> Self {
         Self::ToolResult {
+            id: None,
             tool_use_id: tool_use_id.into(),
             content,
             is_error,
