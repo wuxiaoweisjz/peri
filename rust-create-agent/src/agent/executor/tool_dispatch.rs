@@ -168,16 +168,17 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
     // 阶段三：串行处理结果——尽最大努力写入所有 tool_result，
     // 使并发工具调用的结果在一条 user 消息中完整闭合，满足 Anthropic API 的
     // "每个 tool_use 必须在紧随其后的消息中有对应 tool_result" 的约束。
-    // 中间件错误（run_on_error / run_after_tool）不再提前跳出循环，
-    // 而是延迟到所有结果写入后统一返回。
+    // 工具执行错误（ToolExecutionFailed/ToolNotFound）不会终止循环——
+    // 错误 ToolResult 已写入 state，LLM 在下一轮可看到错误并自行修正。
+    // after_tool 中间件错误收集到 deferred_error，所有结果写入后才统一报错。
     let mut deferred_error: Option<String> = None;
 
     for (modified_call, tool_result) in modified_calls.into_iter().zip(tool_results) {
         let result = match tool_result {
             Ok(output) => ToolResult::success(&modified_call.id, &modified_call.name, output),
             Err(AgentError::ToolNotFound(ref name)) => {
+                // 工具未找到仅作为错误结果写回，不终止循环——LLM 可尝试其他工具
                 tracing::warn!(tool.name = %name, "工具未找到，作为错误结果返回");
-                deferred_error = deferred_error.or(Some(format!("工具 '{}' 不存在", name)));
                 ToolResult::error(
                     &modified_call.id,
                     &modified_call.name,
@@ -185,9 +186,8 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
                 )
             }
             Err(ref e) => {
-                // run_on_error 的副作用（日志/通知）已执行，吞掉传播
+                // 工具执行失败仅作为错误结果写回，不终止循环——LLM 看到错误后可修正参数重试
                 let _ = agent.chain.run_on_error(state, e).await;
-                deferred_error = deferred_error.or(Some(e.to_string()));
                 ToolResult::error(&modified_call.id, &modified_call.name, e.to_string())
             }
         };
@@ -213,7 +213,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
             .run_after_tool(state, &modified_call, &result)
             .await
         {
-            // run_on_error 副作用已执行，吞掉传播；延迟到全部结果写入后再报错
+            // after_tool 中间件错误：副作用已执行，仅记录不终止循环
             let _ = agent.chain.run_on_error(state, &e).await;
             deferred_error = deferred_error.or(Some(e.to_string()));
         }
@@ -238,7 +238,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
         return Err(AgentError::Interrupted);
     }
 
-    // 若循环中收集到 middleware 错误，在结果全部写入后统一报错
+    // 若循环中收集到 after_tool 中间件错误，在结果全部写入后统一报错
     if let Some(msg) = deferred_error {
         return Err(AgentError::MiddlewareError {
             middleware: "chain".to_string(),

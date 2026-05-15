@@ -1,0 +1,69 @@
+# 工具调用参数错误（如 Read - Missing file_path）导致 Agent 停止而非自动重试
+
+**状态**：Open
+**优先级**：高
+**创建日期**：2026-05-15
+
+## 问题描述
+
+当 LLM 发起工具调用但参数不完整（如 `Read` 缺少 `file_path` 参数），工具执行返回错误。期望行为是 Agent 将错误 ToolResult 反馈给 LLM 继续下一轮循环（LLM 自行修正参数），但实际行为是 Agent 以 `MiddlewareError` 直接停止，不再继续。
+
+## 症状详情
+
+```
+MiddlewareError { middleware: "chain", reason: "Tool execution failed: Read - Missing file_path parameter" }
+```
+
+Agent 在工具调用失败后直接终止，用户需手动重新提问。LLM 没有机会看到错误信息并自行修正参数。
+
+### 控制流分析
+
+```
+dispatch_tools() 阶段三结果处理循环（tool_dispatch.rs:175-247）
+  └─ tool_result = Err(ToolExecutionFailed)
+     └─ run_on_error（吞掉）
+     └─ deferred_error = Some(...)     ← 问题：工具执行错误被当作 MiddlewareError
+     └─ ToolResult::error → 写入 state
+  └─ [其他工具结果写入完成]
+  └─ if deferred_error.is_some() → return Err(MiddlewareError)  ← 循环终止
+```
+
+## 根因
+
+`rust-create-agent/src/agent/executor/tool_dispatch.rs:187-191`
+
+```rust
+Err(ref e) => {
+    let _ = agent.chain.run_on_error(state, e).await;
+    deferred_error = deferred_error.or(Some(e.to_string())); // BUG: 不应停止循环
+    ToolResult::error(&modified_call.id, &modified_call.name, e.to_string())
+}
+```
+
+以及 `tool_dispatch.rs:178-181` 的 `ToolNotFound` 也有相同问题：
+
+```rust
+Err(AgentError::ToolNotFound(ref name)) => {
+    deferred_error = deferred_error.or(Some(format!("工具 '{}' 不存在", name)));
+    ToolResult::error(...)
+}
+```
+
+`deferred_error` 机制来自 issue `2026-05-14-orphaned-tool-use-without-tool-result`，用于确保所有 tool_use 都有 tool_result 后再统一报错。但它错误地将**工具执行错误**也当作需要终止循环的错误——工具执行失败应该只产生 error ToolResult 并让 LLM 学习修正，而不是终止。
+
+## 期望行为
+
+| 错误来源 | 当前行为 | 期望行为 |
+|----------|----------|----------|
+| 工具执行失败（`ToolExecutionFailed`） | 设置 deferred_error → 停止循环 | 仅创建 error ToolResult → 继续循环 |
+| 工具不存在（`ToolNotFound`） | 设置 deferred_error → 停止循环 | 仅创建 error ToolResult → 继续循环 |
+| after_tool 中间件错误 | 设置 deferred_error → 停止循环 | 仅创建 error ToolResult → 继续循环 |
+
+三类错误都应反馈给 LLM 而非终止 Agent。
+
+## 涉及文件
+
+- `rust-create-agent/src/agent/executor/tool_dispatch.rs:178-181` —— ToolNotFound 错误处理
+- `rust-create-agent/src/agent/executor/tool_dispatch.rs:187-191` —— ToolExecutionFailed 错误处理
+- `rust-create-agent/src/agent/executor/tool_dispatch.rs:211-218` —— after_tool 中间件错误处理
+- `rust-create-agent/src/agent/executor/tool_dispatch.rs:242-247` —— deferred_error 终止点
