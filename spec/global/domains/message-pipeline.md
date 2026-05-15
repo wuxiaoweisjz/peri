@@ -128,6 +128,30 @@ reconcile_tail(round_start_vm_idx)
 **涉及文件:** rust-agent-tui/src/app/agent_compact.rs, rust-agent-tui/src/app/thread_ops.rs, rust-agent-tui/src/app/agent_ops.rs, rust-agent-tui/src/app/agent_render.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-14-cache-breakpoint-structural-inefficiency
+**摘要:** 82% system 未缓存 + message 断点在 tool_result-only 消息上静默失效
+**状态:** Fixed
+**归档日期:** 2026-05-15
+**关键词:** Prompt Cache, 断点回退, 缓存驱逐, system缓存, cache_control
+**问题本质:** (1) system prompt 中 middleware 注入内容（CLAUDE.md、Skills）永远无 cache_control，82.6% 无法缓存；(2) second-to-last user message 在多轮工具调用中可能是 tool_result-only 消息，断点跳过；(3) ZhipuAI 等 Provider 的 token 报告格式与 Anthropic 原生不同（cache_read 可超过 input_tokens，cache_creation 始终为 0）。
+**通用模式:** cache_control 断点策略需要回退搜索机制——目标消息不含 text block 时向前搜索最近的含 text 消息。断点覆盖范围之外的完整前缀缓存由 Provider 端管理，不受客户端控制。Provider 端的缓存驱逐是随机事件，客户端只能通过增加断点密度来提高小粒度缓存条目的存活概率。
+**架构影响:** 新增 system[last] cache_control 覆盖整个 system prompt 区域，移除被 msg[first] 隐式覆盖的 tools cache_control 冗余断点
+**技术决策:** apply_cache_to_messages 断点回退搜索；system 序列化时对最后一个 block 标记 cache_control
+**涉及文件:** rust-create-agent/src/llm/anthropic.rs
+**CLAUDE.md 链接:** true
+
+### issue_2026-05-15-thinking-tail-preview
+**摘要:** 最后一条 AI 消息无正文时展示思考最后 1 行
+**状态:** Fixed
+**归档日期:** 2026-05-15
+**关键词:** Reasoning渲染, tail_lines, ContentBlockView, Hash设计
+**问题本质:** ContentBlockView::Reasoning 只存储字符数，推理内容完全不可见。需要在不改变 Hash 等价性（char_count 决定 identity）的前提下携带展示用数据。
+**通用模式:** ContentBlockView 的 Hash/PartialEq 设计中，语义身份字段（char_count）参与等价判断，展示辅助字段（text）不参与，触发重渲染的字段（tail_lines）选择性参与。这是一个"身份 ≠ 展示"的解耦模式——同一 semantic identity 可以有多种展示状态。
+**架构影响:** 后处理模式——在 build_tail_vms() 末尾执行 add_thinking_tail_snapshot()，遵循"组装→后处理"的管线阶段分隔
+**技术决策:** text 不参与 Hash（仅 char_count 决定等价性），tail_lines 参与 Hash（变化触发重渲染）
+**涉及文件:** rust-agent-tui/src/ui/message_view.rs, rust-agent-tui/src/app/message_pipeline.rs, rust-agent-tui/src/ui/message_render.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

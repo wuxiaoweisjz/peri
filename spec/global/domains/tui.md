@@ -538,6 +538,17 @@ submit_message(text)
 **涉及文件:** rust-agent-tui/src/event.rs, rust-agent-tui/src/app/mod.rs, rust-agent-tui/src/ui/main_ui.rs
 **CLAUDE.md 链接:** false
 
+### issue_2026-05-14-streaming-resize-cpu-spike
+**摘要:** 流式加载期间拖动窗口宽度，Resize 事件无节流导致 CPU 暴涨
+**状态:** Fixed
+**归档日期:** 2026-05-15
+**关键词:** Resize事件, 去抖/节流, 渲染线程, CPU暴涨
+**问题本质:** 拖动 resize 时 crossterm 每帧发送 Resize 事件（60fps = 60次/秒），每个事件触发渲染线程全量重建（message_hashes.clear() + rebuild + build_wrap_map 换行计算）。流式期间叠加 100ms Rebuild 事件，渲染线程饱和。
+**通用模式:** 渲染事件的发送端和接收端都需要节流/合并：发送端用 last_resize_width 去抖（仅在宽度实际变化时发送），接收端用 drain coalescing（合并积压事件）。单端优化不足以解决问题。
+**技术决策:** last_resize_width 字段记录已发送宽度，Resize handler 中 try_recv() drain 合并所有积压事件
+**涉及文件:** rust-agent-tui/src/app/message_state.rs, rust-agent-tui/src/ui/main_ui.rs, rust-agent-tui/src/ui/render_thread.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

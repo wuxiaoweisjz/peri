@@ -357,6 +357,41 @@ launch_agent 工具调用
 **涉及文件:** rust-create-agent/src/llm/openai.rs, rust-create-agent/src/messages/adapters/openai.rs
 **CLAUDE.md 链接:** true
 
+### issue_2026-05-14-deepseek-anthropic-thinking-block-dropped
+**摘要:** SkillPreloadMiddleware 注入的伪 assistant 消息不含 thinking block，DeepSeek API 400
+**状态:** Fixed
+**归档日期:** 2026-05-15
+**关键词:** thinking block, redacted_thinking, SkillPreload, DeepSeek
+**问题本质:** DeepSeek 要求 thinking 模式下所有 assistant 消息都必须回传 thinking block（含 signature），但 SkillPreloadMiddleware 构造的伪造消息天然不含 thinking。本地构造的 assistant 消息与 provider 的 thinking 回传约束不兼容。
+**通用模式:** 手动构造的 assistant 消息必须考虑 provider 的 thinking 回传约束。在序列化层自动检测并注入 redacted_thinking 比在每个构造点修补更健壮——集中处理比分散修补更可靠。
+**架构影响:** 使用 Anthropic 的 redacted_thinking 类型（opaque data 字段）作为"无 thinking 原文但有占位"的通用解决方案
+**技术决策:** messages_to_anthropic() 中检测不含 thinking/redacted_thinking 的 assistant 消息自动注入 redacted_thinking
+**涉及文件:** rust-agent-middlewares/src/subagent/skill_preload.rs, rust-create-agent/src/llm/anthropic.rs
+**CLAUDE.md 链接:** true
+
+### issue_2026-05-14-orphaned-tool-use-without-tool-result
+**摘要:** 并发工具执行中部分路径提前返回导致 tool_result 缺失，Anthropic API 400
+**状态:** Fixed
+**归档日期:** 2026-05-15
+**关键词:** tool_result闭合, 并发工具, deferred_error, 孤儿tool_use
+**问题本质:** 并发工具执行的结果处理循环中，P3（run_on_error 错误传播）和 P4（run_after_tool 返回 Err）路径通过 `?` 提前跳出循环，导致后续工具的 tool_result 未写入 state。Anthropic API 要求所有 tool_use 必须在下一条消息中有对应 tool_result（闭合跟随规则），缺失即 400。
+**通用模式:** 多工具并发的结果处理必须"尽最大努力收集所有结果，延迟错误传播"（collect-all-before-error 模式）。在循环中收集 deferred_error，循环结束后统一判断是否报错。所有 tool_result 必须始终写入（包括 error tool_result）。
+**架构影响:** deferred_error 模式——将所有错误收集到 Option<AgentError>，循环结束后统一返回。这适用于所有需要"处理所有元素后再决定成败"的并发场景
+**技术决策:** run_on_error/run_after_tool 失败改为 let _ = 吞掉并收集到 deferred_error；state.add_message(tool_msg) 始终执行
+**涉及文件:** rust-create-agent/src/agent/executor/tool_dispatch.rs
+**CLAUDE.md 链接:** true
+
+### issue_2026-05-14-grep-tool-capability-gap
+**摘要:** Grep 工具声明参数未实现 + 标准 grep 能力缺失
+**状态:** Fixed
+**归档日期:** 2026-05-15
+**关键词:** Grep工具, 参数声明, 接口契约, 工具标准能力
+**问题本质:** 工具暴露给 LLM 的 JSON schema 参数（multiline/-n/whole_word）声称可用但实际未实现，导致 LLM 写出正确的跨行正则却得到错误结果。本质是接口契约不匹配——声明与实现不同步。
+**通用模式:** 所有暴露给 LLM 的工具参数必须经过实现验证。工具 schema 是对 LLM 的接口契约，任何声称支持的参数必须有对应的代码路径。新增参数时必须同步实现。
+**技术决策:** output_mode 从必填改为默认 "content"，减少 LLM 调用负担
+**涉及文件:** rust-agent-middlewares/src/tools/filesystem/grep.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

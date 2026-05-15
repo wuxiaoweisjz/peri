@@ -51,5 +51,29 @@
 
 ---
 
+## Issue 经验附录
+
+### issue_2026-05-14-dead-code-unfinished-features-cleanup
+**摘要:** 24 处 #[allow(dead_code/unused)] 抑制了真正的死代码和未完成功能
+**状态:** Fixed
+**归档日期:** 2026-05-15
+**关键词:** 死代码, allow注解, 代码清理, 编译器警告
+**问题本质:** 编译器零警告不代表代码健康。24 处 allow 注解中，1 处为真正的死代码（CaptureLLM 完整实现但未接入测试），多处为未完成功能的预留字段/方法。
+**通用模式:** 定期审计 #[allow(dead_code/unused)] 注解可以发现未完成功能和技术债。allow 注解是技术债的信号标记——它压制了编译器检测但保留了问题。
+**涉及文件:** rust-agent-middlewares/src/subagent/tool_test.rs, rust-agent-tui/src/app/message_pipeline.rs, rust-agent-middlewares/src/tool_search/tool_index.rs, rust-agent-tui/src/app/agent_comm.rs, rust-agent-tui/src/prompt.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-05-14-test-separation-convention-debt
+**摘要:** 89.8% 源文件内联测试违反规范，两轮分离后 152 个文件外部化
+**状态:** Resolved
+**归档日期:** 2026-05-15
+**关键词:** 测试分离, include!, #[path], 模块可见性
+**问题本质:** `#[path = "..._test.rs"]` 模式将测试模块定义到外部文件后，`use super::*;` 只能看到父模块的公有项（Rust 2018+ 同文件模块特殊规则失效），导致 async_trait、Arc 等私有 import 不可见。
+**通用模式:** 外部测试文件有两种引用模式：(1) `#[path]` — 适用于纯公有 API 测试；(2) `include!` — 文本级包含，完全保留原始作用域语义，适用于需要访问私有导入的测试。选择标准：如果测试依赖父模块的私有 use 语句（如 async_trait、Arc、内部模块路径），用 `include!`；否则用 `#[path]`。
+**涉及文件:** 152 个 *_test.rs 文件，152 个源文件
+**CLAUDE.md 链接:** false
+
+---
+
 ## 相关 Feature
 - → [tui.md](./tui.md) — TUI App 结构体变更

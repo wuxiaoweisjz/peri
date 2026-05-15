@@ -12,6 +12,7 @@
 - [Skill Preload 注入消息到历史最前面导致首轮 Prompt Cache 失效](domains/message-pipeline.md#issue_2026-05-12-skill-preload-invalidates-prompt-cache) — message-pipeline
 - [System prompt 动态内容导致 Anthropic prompt cache 频繁失效，边界标记拆分修复](domains/system-prompt.md#issue_2026-05-13-system-prompt-dynamic-cache-invalidation) — system-prompt
 - [AskUserQuestion 导致缓存命中率极速下降](domains/system-prompt.md#issue_2026-05-13-askuserquestion-cache-hit-rate-drop) — system-prompt
+- [82% system 未缓存 + 断点在 tool_result-only 消息上静默失效](domains/message-pipeline.md#issue_2026-05-14-cache-breakpoint-structural-inefficiency) — message-pipeline
 
 ### 缓存前缀
 - [多处 HashMap 非确定性顺序导致 Anthropic Prompt Cache 前缀不稳定](domains/message-pipeline.md#issue_2026-05-12-deferred-tool-list-nondeterministic-order) — message-pipeline
@@ -28,6 +29,7 @@
 
 ### cache_control
 - [Skill Preload 注入消息到历史最前面导致首轮 Prompt Cache 失效](domains/message-pipeline.md#issue_2026-05-12-skill-preload-invalidates-prompt-cache) — message-pipeline
+- [82% system 未缓存 + 断点在 tool_result-only 消息上静默失效](domains/message-pipeline.md#issue_2026-05-14-cache-breakpoint-structural-inefficiency) — message-pipeline
 
 ### SystemNote
 - [SystemNote 在 RebuildAll 后堆积到消息列表末尾](domains/message-pipeline.md#issue_2026-05-12-systemnote-position-drift-on-rebuild) — message-pipeline
@@ -163,7 +165,101 @@
 ### transport 断开
 - [LSP transport 层错误处理缺陷（进程退出未更新状态 + 崩溃后无自动重连）](domains/lsp.md#issue_2026-05-12-lsp-transport-no-fast-fail-on-process-exit) — lsp
 
+### Grep工具
+- [Grep 工具声明参数未实现 + 标准 grep 能力缺失](domains/agent.md#issue_2026-05-14-grep-tool-capability-gap) — agent
+
+### 参数声明
+- [Grep 工具声明参数未实现 + 标准 grep 能力缺失](domains/agent.md#issue_2026-05-14-grep-tool-capability-gap) — agent
+
+### 接口契约
+- [Grep 工具声明参数未实现 + 标准 grep 能力缺失](domains/agent.md#issue_2026-05-14-grep-tool-capability-gap) — agent
+
+### 工具标准能力
+- [Grep 工具声明参数未实现 + 标准 grep 能力缺失](domains/agent.md#issue_2026-05-14-grep-tool-capability-gap) — agent
+
+### thinking block
+- [SkillPreloadMiddleware 注入的伪 assistant 消息不含 thinking block，DeepSeek API 400](domains/agent.md#issue_2026-05-14-deepseek-anthropic-thinking-block-dropped) — agent
+
+### redacted_thinking
+- [SkillPreloadMiddleware 注入的伪 assistant 消息不含 thinking block，DeepSeek API 400](domains/agent.md#issue_2026-05-14-deepseek-anthropic-thinking-block-dropped) — agent
+
+### SkillPreload
+- [SkillPreloadMiddleware 注入的伪 assistant 消息不含 thinking block，DeepSeek API 400](domains/agent.md#issue_2026-05-14-deepseek-anthropic-thinking-block-dropped) — agent
+
+### DeepSeek
+- [SkillPreloadMiddleware 注入的伪 assistant 消息不含 thinking block，DeepSeek API 400](domains/agent.md#issue_2026-05-14-deepseek-anthropic-thinking-block-dropped) — agent
+
+### tool_result闭合
+- [并发工具执行中部分路径提前返回导致 tool_result 缺失](domains/agent.md#issue_2026-05-14-orphaned-tool-use-without-tool-result) — agent
+
+### 并发工具
+- [并发工具执行中部分路径提前返回导致 tool_result 缺失](domains/agent.md#issue_2026-05-14-orphaned-tool-use-without-tool-result) — agent
+
+### deferred_error
+- [并发工具执行中部分路径提前返回导致 tool_result 缺失](domains/agent.md#issue_2026-05-14-orphaned-tool-use-without-tool-result) — agent
+
+### 孤儿tool_use
+- [并发工具执行中部分路径提前返回导致 tool_result 缺失](domains/agent.md#issue_2026-05-14-orphaned-tool-use-without-tool-result) — agent
+
+### 死代码
+- [24 处 #[allow(dead_code/unused)] 抑制了真正的死代码和未完成功能](domains/code-architecture.md#issue_2026-05-14-dead-code-unfinished-features-cleanup) — code-architecture
+
+### allow注解
+- [24 处 #[allow(dead_code/unused)] 抑制了真正的死代码和未完成功能](domains/code-architecture.md#issue_2026-05-14-dead-code-unfinished-features-cleanup) — code-architecture
+
+### 代码清理
+- [24 处 #[allow(dead_code/unused)] 抑制了真正的死代码和未完成功能](domains/code-architecture.md#issue_2026-05-14-dead-code-unfinished-features-cleanup) — code-architecture
+
+### 编译器警告
+- [24 处 #[allow(dead_code/unused)] 抑制了真正的死代码和未完成功能](domains/code-architecture.md#issue_2026-05-14-dead-code-unfinished-features-cleanup) — code-architecture
+
+### 测试分离
+- [89.8% 源文件内联测试违反规范，两轮分离后 152 个文件外部化](domains/code-architecture.md#issue_2026-05-14-test-separation-convention-debt) — code-architecture
+
+### include!
+- [89.8% 源文件内联测试违反规范，两轮分离后 152 个文件外部化](domains/code-architecture.md#issue_2026-05-14-test-separation-convention-debt) — code-architecture
+
+### #[path]
+- [89.8% 源文件内联测试违反规范，两轮分离后 152 个文件外部化](domains/code-architecture.md#issue_2026-05-14-test-separation-convention-debt) — code-architecture
+
+### 模块可见性
+- [89.8% 源文件内联测试违反规范，两轮分离后 152 个文件外部化](domains/code-architecture.md#issue_2026-05-14-test-separation-convention-debt) — code-architecture
+
+### Reasoning渲染
+- [最后一条 AI 消息无正文时展示思考最后 1 行](domains/message-pipeline.md#issue_2026-05-15-thinking-tail-preview) — message-pipeline
+
+### tail_lines
+- [最后一条 AI 消息无正文时展示思考最后 1 行](domains/message-pipeline.md#issue_2026-05-15-thinking-tail-preview) — message-pipeline
+
+### ContentBlockView
+- [最后一条 AI 消息无正文时展示思考最后 1 行](domains/message-pipeline.md#issue_2026-05-15-thinking-tail-preview) — message-pipeline
+
+### Hash设计
+- [最后一条 AI 消息无正文时展示思考最后 1 行](domains/message-pipeline.md#issue_2026-05-15-thinking-tail-preview) — message-pipeline
+
+### 断点回退
+- [82% system 未缓存 + 断点在 tool_result-only 消息上静默失效](domains/message-pipeline.md#issue_2026-05-14-cache-breakpoint-structural-inefficiency) — message-pipeline
+
+### 缓存驱逐
+- [82% system 未缓存 + 断点在 tool_result-only 消息上静默失效](domains/message-pipeline.md#issue_2026-05-14-cache-breakpoint-structural-inefficiency) — message-pipeline
+
+### system缓存
+- [82% system 未缓存 + 断点在 tool_result-only 消息上静默失效](domains/message-pipeline.md#issue_2026-05-14-cache-breakpoint-structural-inefficiency) — message-pipeline
+
+### Resize事件
+- [流式加载期间拖动窗口宽度，Resize 事件无节流导致 CPU 暴涨](domains/tui.md#issue_2026-05-14-streaming-resize-cpu-spike) — tui
+
+### 去抖/节流
+- [流式加载期间拖动窗口宽度，Resize 事件无节流导致 CPU 暴涨](domains/tui.md#issue_2026-05-14-streaming-resize-cpu-spike) — tui
+
+### 渲染线程
+- [流式加载期间拖动窗口宽度，Resize 事件无节流导致 CPU 暴涨](domains/tui.md#issue_2026-05-14-streaming-resize-cpu-spike) — tui
+
+### CPU暴涨
+- [流式加载期间拖动窗口宽度，Resize 事件无节流导致 CPU 暴涨](domains/tui.md#issue_2026-05-14-streaming-resize-cpu-spike) — tui
+
 ## 更新记录
 
 - 2026-05-13: 首次创建，归档 22 个 issue，提取 14 条领域认知
 - 2026-05-14: 第二次归档，归档 12 个 issue，提取 8 条领域认知（agent 2 + message-pipeline 2 + system-prompt 4）
+- 2026-05-15: 第三次归档，归档 8 个 issue，提取 7 条领域认知（agent 3 + code-architecture 2 + message-pipeline 2 + tui 1）
