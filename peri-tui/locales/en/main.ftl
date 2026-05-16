@@ -273,6 +273,7 @@ app-compact-failed = Compact failed: { $error }
 app-compact-auto-cleared = Auto cleanup: freed { $count } tool call results
 app-compact-limit-reached = Context still exceeds limit after compression. Use /compact to manually compress or /clear to clear history.
 app-model-switched = Model switched to: { $alias } ({ $effort } effort)
+app-1m-context-enabled = 1M context mode enabled (context window: 1,000,000 tokens)
 app-prompt-cache-low = Prompt cache hit rate { $rate }% < 80% (req: { $req })
 app-no-mcp-configured = No MCP servers configured (add in .mcp.json or settings.json)
 app-no-cron-tasks = No cron tasks

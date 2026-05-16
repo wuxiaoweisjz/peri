@@ -5,6 +5,7 @@
             active_tab: AliasTab::Opus,
             buf_thinking_effort: "medium".to_string(),
             buf_max_tokens: 32000,
+            buf_context_1m: false,
             cursor: ROW_OPUS,
         };
         app.session_mgr.sessions[app.session_mgr.active]

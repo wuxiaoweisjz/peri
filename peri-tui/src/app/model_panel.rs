@@ -55,7 +55,8 @@ pub const ROW_SONNET: usize = 1;
 pub const ROW_HAIKU: usize = 2;
 pub const ROW_MAX_TOKENS: usize = 3;
 pub const ROW_EFFORT: usize = 4;
-pub const ROW_COUNT: usize = 5;
+pub const ROW_1M_CONTEXT: usize = 5;
+pub const ROW_COUNT: usize = 6;
 
 // ─── ModelPanel ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,8 @@ pub struct ModelPanel {
     pub buf_thinking_effort: String,
     /// max_tokens 值
     pub buf_max_tokens: u32,
+    /// 1M 上下文开关
+    pub buf_context_1m: bool,
     /// 光标所在行（0..ROW_COUNT-1）
     pub(crate) cursor: usize,
 }
@@ -109,11 +112,14 @@ impl ModelPanel {
             .map(|t| t.max_tokens)
             .unwrap_or(32000);
 
+        let context_1m = cfg.config.context_1m.unwrap_or(false);
+
         Self {
             provider_name,
             active_tab,
             buf_thinking_effort: effort,
             buf_max_tokens: max_tokens,
+            buf_context_1m: context_1m,
             cursor,
         }
     }
@@ -172,7 +178,7 @@ impl ModelPanel {
         }
     }
 
-    /// 将面板状态写入 PeriConfig（alias + thinking + max_tokens）
+    /// 将面板状态写入 PeriConfig（alias + thinking + max_tokens + 1M context）
     pub fn apply_to_config(&self, cfg: &mut PeriConfig) {
         cfg.config.active_alias = self.active_tab.to_key().to_string();
         let t = cfg.config.thinking.get_or_insert_with(|| ThinkingConfig {
@@ -184,6 +190,7 @@ impl ModelPanel {
         t.enabled = true;
         t.effort = self.buf_thinking_effort.clone();
         t.max_tokens = self.buf_max_tokens;
+        cfg.config.context_1m = Some(self.buf_context_1m);
     }
 }
 
@@ -236,24 +243,33 @@ impl PanelComponent for ModelPanel {
                     self.cycle_max_tokens(false);
                     EventResult::Consumed
                 }
+                ROW_1M_CONTEXT => {
+                    self.buf_context_1m = !self.buf_context_1m;
+                    Self::apply_and_close(self, ctx);
+                    EventResult::ClosePanel
+                }
                 _ => EventResult::Consumed,
             },
-            // Space: 切换 effort 等级（无需选中 effort 行）或 max_tokens
+            // Space: 切换 effort 等级（无需选中 effort 行）或 max_tokens 或 1M 上下文
             Input {
                 key: Key::Char(' '),
                 ..
             } => {
                 if self.cursor() == ROW_MAX_TOKENS {
                     self.cycle_max_tokens(false);
+                } else if self.cursor() == ROW_1M_CONTEXT {
+                    self.buf_context_1m = !self.buf_context_1m;
                 } else {
                     self.cycle_effort(false);
                 }
                 EventResult::Consumed
             }
-            // ←/→: 随时切换 effort 等级或 max_tokens
+            // ←/→: 随时切换 effort 等级或 max_tokens 或 1M 上下文
             Input { key: Key::Left, .. } => {
                 if self.cursor() == ROW_MAX_TOKENS {
                     self.cycle_max_tokens(true);
+                } else if self.cursor() == ROW_1M_CONTEXT {
+                    self.buf_context_1m = !self.buf_context_1m;
                 } else {
                     self.cycle_effort(true);
                 }
@@ -264,6 +280,8 @@ impl PanelComponent for ModelPanel {
             } => {
                 if self.cursor() == ROW_MAX_TOKENS {
                     self.cycle_max_tokens(false);
+                } else if self.cursor() == ROW_1M_CONTEXT {
+                    self.buf_context_1m = !self.buf_context_1m;
                 } else {
                     self.cycle_effort(false);
                 }
@@ -297,7 +315,7 @@ impl PanelComponent for ModelPanel {
     }
 
     fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
-        12
+        13
     }
 
     fn render(&mut self, f: &mut Frame, app: &mut App, area: Rect) {
@@ -351,6 +369,13 @@ impl ModelPanel {
                 ],
             ));
 
+        // 1M 上下文模式切换提示
+        if panel.buf_context_1m {
+            ctx.session_mgr.sessions[ctx.session_mgr.active]
+                .messages
+                .push_system_note(ctx.services.lc.tr("app-1m-context-enabled"));
+        }
+
         if let Err(e) = App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
             ctx.session_mgr.sessions[ctx.session_mgr.active]
                 .messages
@@ -363,6 +388,17 @@ impl ModelPanel {
         if let Some(p) = crate::app::agent::LlmProvider::from_config(cfg) {
             ctx.services.provider_name = p.display_name().to_string();
             ctx.services.model_name = p.model_name().to_string();
+
+            // 同步 context_window 到 TUI 状态（agent.context_window 用于 status line 显示）
+            let mut cw = p.context_window();
+            if panel.buf_context_1m {
+                cw = 1_000_000;
+            }
+            if cw > 0 {
+                ctx.session_mgr.sessions[ctx.session_mgr.active]
+                    .agent
+                    .context_window = cw;
+            }
         }
     }
 }

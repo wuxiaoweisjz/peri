@@ -234,6 +234,7 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
         .unwrap_or_default();
     let mut compact_config = peri_config.config.compact.clone().unwrap_or_default();
     compact_config.apply_env_overrides();
+    let context_1m = peri_config.config.context_1m.unwrap_or(false);
     let config_for_factory = peri_config;
     let session_id_for_factory = thread_id.to_string();
     #[allow(clippy::type_complexity)]
@@ -299,7 +300,10 @@ pub async fn run_universal_agent(cfg: AgentRunConfig) {
     // （从 AgentRunConfig 传入，已在 session 层初始化）
 
     // 设置 context_budget 以启用核心层的 token 用量监控和 micro_compact
-    let context_window = model.context_window();
+    let mut context_window = model.context_window();
+    if context_1m {
+        context_window = 1_000_000;
+    }
     let context_budget = peri_agent::agent::token::ContextBudget::new(context_window)
         .with_auto_compact_threshold(compact_config.auto_compact_threshold)
         .with_warning_threshold(compact_config.micro_compact_threshold);

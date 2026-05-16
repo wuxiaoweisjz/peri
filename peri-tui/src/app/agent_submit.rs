@@ -120,8 +120,18 @@ impl App {
         };
 
         // 从 Provider 模型获取正确的 context_window（解决第三方 Provider 默认 200k 不准确问题）
+        // 若启用 1M 上下文模式，则覆盖为 1,000,000
         {
-            let model_cw = provider.context_window();
+            let mut model_cw = provider.context_window();
+            if self
+                .services
+                .peri_config
+                .as_ref()
+                .map(|c| c.config.context_1m.unwrap_or(false))
+                .unwrap_or(false)
+            {
+                model_cw = 1_000_000;
+            }
             if model_cw > 0
                 && self.session_mgr.sessions[self.session_mgr.active]
                     .agent

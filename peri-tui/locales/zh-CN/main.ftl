@@ -272,6 +272,7 @@ app-compact-failed = 压缩失败: { $error }
 app-compact-auto-cleared = 自动清理：释放了 { $count } 个工具调用结果
 app-compact-limit-reached = 上下文压缩后仍超出限制，已停止自动继续。请使用 /compact 手动压缩或 /clear 清空历史。
 app-model-switched = 模型已切换为: { $alias } ({ $effort } effort)
+app-1m-context-enabled = 已启用 1M 上下文模式（context window: 1,000,000 tokens）
 app-prompt-cache-low = Prompt cache 命中率 { $rate }% < 80% (req: { $req })
 app-no-mcp-configured = 无 MCP 服务器配置（请在 .mcp.json 或 settings.json 中添加）
 app-no-cron-tasks = 无定时任务

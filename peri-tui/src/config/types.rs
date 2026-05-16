@@ -142,6 +142,9 @@ pub struct AppConfig {
     /// 主动性级别（low/medium/high）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proactiveness: Option<String>,
+    /// 是否启用 1M 上下文模式（覆盖 context_window 为 1,000,000 tokens）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_1m: Option<bool>,
     /// 保留未知字段，写回时不丢失
     #[serde(flatten)]
     pub extra: Map<String, Value>,
