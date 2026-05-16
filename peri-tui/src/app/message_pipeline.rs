@@ -648,6 +648,9 @@ impl MessagePipeline {
         self.has_snapshot_this_round = false;
         self.throttle_armed = false;
         self.throttle_last_fire = None;
+        // 清空上一轮的 frozen_subagent_vms，防止跨轮次累积导致新轮次的
+        // SubAgentGroup 按位置错误匹配到旧轮的 frozen VM（而非本轮的）。
+        self.frozen_subagent_vms.clear();
     }
 
     // ── 节流机制 ──────────────────────────────────────────────────────────────

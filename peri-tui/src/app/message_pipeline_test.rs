@@ -966,3 +966,103 @@ fn test_extract_tail_lines_single_line() {
     let result = extract_tail_lines(text, 4);
     assert_eq!(result, "hello world");
 }
+
+/// frozen_subagent_vms 跨轮次累积：begin_round() 应清空上一轮冻结的 VMs，
+/// 防止 merge_frozen_subagents 按位置错误匹配到旧轮次的数据。
+#[test]
+fn test_frozen_subagent_vms_cleared_on_begin_round() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.has_snapshot_this_round = true;
+    pipeline.completed_len_at_round_start = 0;
+
+    // ── 轮次 1：并发 2 个 SubAgent ──
+    pipeline.handle_event(AgentEvent::SubAgentStart {
+        agent_id: "sa1".into(),
+        task_preview: "task one".into(),
+        is_background: false,
+    });
+    pipeline.handle_event(AgentEvent::SubAgentStart {
+        agent_id: "sa2".into(),
+        task_preview: "task two".into(),
+        is_background: false,
+    });
+    pipeline.handle_event(AgentEvent::SubAgentEnd {
+        result: "result sa1".into(),
+        is_error: false,
+    });
+    pipeline.handle_event(AgentEvent::SubAgentEnd {
+        result: "result sa2".into(),
+        is_error: false,
+    });
+
+    // 验证轮次 1 的 frozen_subagent_vms 包含 2 个冻结 VM
+    assert_eq!(
+        pipeline.frozen_subagent_vms_count(),
+        2,
+        "轮次 1 结束后应有 2 个 frozen VM"
+    );
+
+    pipeline.done();
+
+    // done() 不应清空 frozen_subagent_vms（它们会被 build_tail_vms 消费）
+    assert_eq!(
+        pipeline.frozen_subagent_vms_count(),
+        2,
+        "done() 后 frozen VMs 仍在（等待 build_tail_vms 消费）"
+    );
+
+    // ── 轮次 2 开始 ──
+    pipeline.begin_round();
+
+    // begin_round() 应清空上一轮的 frozen_subagent_vms
+    assert_eq!(
+        pipeline.frozen_subagent_vms_count(),
+        0,
+        "begin_round() 后 frozen_subagent_vms 应被清空"
+    );
+
+    // ── 轮次 2：单个 SubAgent sa3 ──
+    pipeline.handle_event(AgentEvent::SubAgentStart {
+        agent_id: "sa3".into(),
+        task_preview: "task three".into(),
+        is_background: false,
+    });
+    pipeline.handle_event(AgentEvent::SubAgentEnd {
+        result: "result sa3".into(),
+        is_error: false,
+    });
+
+    assert_eq!(
+        pipeline.frozen_subagent_vms_count(),
+        1,
+        "轮次 2 应只有 1 个 frozen VM（sa3）"
+    );
+
+    // 验证 sa3 的 frozen VM 内容正确（不是 sa1/sa2 的数据）
+    if let MessageViewModel::SubAgentGroup { agent_id, .. } = &pipeline.frozen_subagent_vms[0] {
+        assert_eq!(agent_id, "sa3", "frozen VM 应属于 sa3，而非 sa1/sa2");
+    } else {
+        panic!("frozen_subagent_vms[0] 应为 SubAgentGroup");
+    }
+}
+
+/// merge_frozen_subagents 在 frozen_vms 为空时不应修改 new_vms。
+#[test]
+fn test_merge_frozen_subagents_empty_is_noop() {
+    let mut new_vms = vec![MessageViewModel::SubAgentGroup {
+        agent_id: "sa1".into(),
+        task_preview: "task".into(),
+        total_steps: 3,
+        recent_messages: Vec::new(),
+        is_running: false,
+        collapsed: false,
+        final_result: Some("result".into()),
+        is_error: false,
+        is_background: false,
+        bg_hash: None,
+        batch_agents: Vec::new(),
+    }];
+    let original = new_vms.clone();
+    merge_frozen_subagents(&[], &mut new_vms);
+    assert_eq!(new_vms, original, "空 frozen_vms 不应修改 new_vms");
+}

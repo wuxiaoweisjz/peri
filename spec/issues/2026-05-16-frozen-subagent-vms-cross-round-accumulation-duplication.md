@@ -65,3 +65,14 @@
 - 每轮 Done 后 `frozen_subagent_vms` 应清空，或 `merge_frozen_subagents` 应按 agent_id 匹配而非位置匹配
 - 每轮 SubAgentGroup 应显示本轮的 agent_id/task_preview，不出现跨轮次数据污染
 - 前一轮的批次卡片在当前轮次 RebuildAll 后不应再可见（或应正确更新为当前轮次的内容）
+
+## 修复方案
+
+在 `begin_round()` 中调用 `self.frozen_subagent_vms.clear()`，确保每轮开始时清空上一轮的冻结 VMs。
+
+**修改文件**：
+- `peri-tui/src/app/message_pipeline.rs:653` —— `begin_round()` 新增 `self.frozen_subagent_vms.clear()`
+- `peri-tui/src/app/message_pipeline_test.rs` —— 新增 2 个测试：
+  - `test_frozen_subagent_vms_cleared_on_begin_round`：验证跨轮次清空行为
+  - `test_merge_frozen_subagents_empty_is_noop`：验证空 frozen_vms 的 noop 语义
+
