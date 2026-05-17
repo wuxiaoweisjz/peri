@@ -77,38 +77,25 @@ fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'
         }
     } else {
         // 展开态：每个 agent 显示 task_preview + final_result
-        let bg_style = Style::default().bg(theme::SUB_AGENT_BG);
         for (idx, agent) in agents.iter().enumerate() {
             let is_last = idx == total - 1;
             let connector = if is_last { "└─" } else { "├─" };
 
             // task_preview 行
             lines.push(Line::from(vec![
-                Span::styled("   ", bg_style),
-                Span::styled(
-                    connector.to_string(),
-                    Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
-                ),
-                Span::styled(" ".to_string(), bg_style),
-                Span::styled(
-                    agent.task_preview.clone(),
-                    Style::default().fg(theme::TEXT).bg(theme::SUB_AGENT_BG),
-                ),
+                Span::raw("   "),
+                Span::styled(connector.to_string(), Style::default().fg(theme::DIM)),
+                Span::raw(" "),
+                Span::styled(agent.task_preview.clone(), Style::default().fg(theme::TEXT)),
             ]));
 
             // final_result 行（如果有）
             if let Some(ref result) = agent.final_result {
                 if !result.is_empty() {
                     lines.push(Line::from(vec![
-                        Span::styled("     ", bg_style),
-                        Span::styled(
-                            "⎿ ",
-                            Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
-                        ),
-                        Span::styled(
-                            result.clone(),
-                            Style::default().fg(theme::MUTED).bg(theme::SUB_AGENT_BG),
-                        ),
+                        Span::raw("     "),
+                        Span::styled("⎿ ", Style::default().fg(theme::DIM)),
+                        Span::styled(result.clone(), Style::default().fg(theme::MUTED)),
                     ]));
                 }
             }
@@ -508,7 +495,6 @@ pub fn render_view_model(
                 } else {
                     recent_messages
                 };
-                let bg_style = Style::default().bg(theme::SUB_AGENT_BG);
                 for inner_vm in iter_messages.iter() {
                     // SubAgent 内部跳过 AssistantBubble，只显示工具调用
                     if matches!(inner_vm, MessageViewModel::AssistantBubble { .. }) {
@@ -519,9 +505,9 @@ pub fn render_view_model(
                         continue;
                     }
                     for line in inner_lines {
-                        // 每行前缀 2 空格缩进 + 背景色
-                        let mut new_spans = vec![Span::styled("  ", bg_style)];
-                        new_spans.extend(line.spans.into_iter().map(|s| s.patch_style(bg_style)));
+                        // 每行前缀 2 空格缩进
+                        let mut new_spans = vec![Span::raw("  ")];
+                        new_spans.extend(line.spans);
                         lines.push(Line::from(new_spans));
                     }
                 }
@@ -537,14 +523,8 @@ pub fn render_view_model(
                             if !first_line.is_empty() {
                                 let text: String = first_line.chars().take(80).collect();
                                 lines.push(Line::from(vec![
-                                    Span::styled(
-                                        "  ⎿ ",
-                                        Style::default().fg(theme::DIM).bg(theme::SUB_AGENT_BG),
-                                    ),
-                                    Span::styled(
-                                        text,
-                                        Style::default().fg(theme::MUTED).bg(theme::SUB_AGENT_BG),
-                                    ),
+                                    Span::styled("  ⎿ ", Style::default().fg(theme::DIM)),
+                                    Span::styled(text, Style::default().fg(theme::MUTED)),
                                 ]));
                             }
                         }
