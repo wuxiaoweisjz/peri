@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
+    widgets::{Paragraph, ScrollbarState, Wrap},
     Frame,
 };
 
@@ -312,11 +312,8 @@ pub(crate) fn render_messages(
     if max_scroll > 0 {
         let mut scrollbar_state =
             ScrollbarState::new(max_scroll as usize).position(offset as usize);
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(None)
-            .style(Style::default().fg(theme::MUTED));
+        let scrollbar =
+            peri_widgets::unified_vertical_scrollbar().style(Style::default().fg(theme::MUTED));
         f.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
 
         // 滚动到底按钮（当用户滚离底部时显示）

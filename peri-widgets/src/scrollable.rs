@@ -6,6 +6,18 @@ use ratatui::{
     Frame,
 };
 
+/// 全项目统一的垂直滚动条构造器。
+///
+/// 使用 `█` (FULL BLOCK) 作为 thumb、不渲染 track/begin/end，
+/// 避免 `║` 等 box-drawing 字符在部分终端中出现竖排空隙（分段）
+/// 以及 begin/end 三角符号在不同终端中高度不一致的问题。
+pub fn unified_vertical_scrollbar() -> Scrollbar<'static> {
+    Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(None)
+}
+
 /// 滚动偏移状态
 ///
 /// 管理垂直滚动 offset，提供 ensure_visible 方法自动调整 offset 使指定行可见。
@@ -129,8 +141,7 @@ impl<'a> ScrollableArea<'a> {
             let mut scrollbar_state = ScrollbarState::new(max_scroll as usize)
                 .viewport_content_length(viewport as usize)
                 .position(state.offset as usize);
-            let scrollbar =
-                Scrollbar::new(ScrollbarOrientation::VerticalRight).style(self.scrollbar_style);
+            let scrollbar = unified_vertical_scrollbar().style(self.scrollbar_style);
             f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
         }
     }

@@ -38,7 +38,7 @@ fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'
         format!("{} agents finished", total)
     };
     lines.push(Line::from(vec![
-        Span::styled("⏺ ", Style::default().fg(theme::SAGE)),
+        Span::styled("● ", Style::default().fg(theme::SAGE)),
         Span::styled(header_text, Style::default().fg(theme::TEXT)),
     ]));
 
@@ -105,12 +105,12 @@ fn render_batch_summary(agents: &[AgentSummary], collapsed: &bool) -> Vec<Line<'
     lines
 }
 
-/// AskUserQuestion 专用渲染：`⏺ User answered Peri's questions:` + `⎿ · H → V`
+/// AskUserQuestion 专用渲染：`● User answered Peri's questions:` + `⎿ · H → V`
 fn render_ask_user_block(content: &str, is_error: bool) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let color = if is_error { theme::ERROR } else { theme::SAGE };
     lines.push(Line::from(vec![
-        Span::styled("⏺ ", Style::default().fg(color)),
+        Span::styled("● ", Style::default().fg(color)),
         Span::styled(
             "User answered Peri's questions:".to_string(),
             Style::default().fg(theme::TEXT),
@@ -191,60 +191,22 @@ pub fn render_view_model(
             }
             lines
         }
-        MessageViewModel::AssistantBubble {
-            blocks,
-            is_streaming,
-            ..
-        } => {
+        MessageViewModel::AssistantBubble { blocks, .. } => {
             let mut lines = Vec::new();
-            let mut first_text_merged = false;
-
-            // 流式进行中：● 前缀闪烁动画（每 400ms 切换可见/暗淡）
-            let indicator = if *is_streaming {
-                let tick = std::time::Instant::now().elapsed().as_millis() as u64 / 400;
-                let visible = tick.is_multiple_of(2);
-                Span::styled(
-                    "●".to_string(),
-                    Style::default().fg(if visible { theme::TEXT } else { theme::DIM }),
-                )
-            } else {
-                Span::styled("●".to_string(), Style::default().fg(theme::TEXT))
-            };
 
             for block in blocks {
                 match block {
                     ContentBlockView::Text { rendered, raw, .. } => {
-                        // 先检测 diff 内容，分支渲染避免双重渲染丢失前缀
                         let is_diff = peri_widgets::message_block::highlight::is_diff_content(raw);
                         if is_diff {
-                            // Diff 专用渲染路径：保留 ● 首行前缀
-                            for (i, l) in raw.lines().enumerate() {
+                            for l in raw.lines() {
                                 let diff_spans =
                                     peri_widgets::message_block::highlight::highlight_diff_line(l);
-                                if i == 0 && !first_text_merged {
-                                    let mut spans = vec![indicator.clone(), Span::raw(" ")];
-                                    spans.extend(diff_spans);
-                                    lines.push(Line::from(spans));
-                                    first_text_merged = true;
-                                } else {
-                                    let mut spans = vec![Span::raw("  ")];
-                                    spans.extend(diff_spans);
-                                    lines.push(Line::from(spans));
-                                }
+                                lines.push(Line::from(diff_spans));
                             }
                         } else {
-                            // 正常 markdown 渲染路径
                             for line in rendered.lines.iter() {
-                                if !first_text_merged {
-                                    let mut spans = vec![indicator.clone(), Span::raw(" ")];
-                                    spans.extend(line.spans.clone());
-                                    lines.push(Line::from(spans));
-                                    first_text_merged = true;
-                                } else {
-                                    let mut spans = vec![Span::raw("  ")];
-                                    spans.extend(line.spans.clone());
-                                    lines.push(Line::from(spans));
-                                }
+                                lines.push(Line::from(line.spans.clone()));
                             }
                         }
                     }
@@ -253,19 +215,10 @@ pub fn render_view_model(
                         tail_lines,
                         ..
                     } => {
-                        // 显示思考字数摘要（不显示具体内容）
-                        if !first_text_merged {
-                            lines.push(Line::from(vec![
-                                indicator.clone(),
-                                Span::raw(" "),
-                                Span::styled(
-                                    format!("Thought for {} chars", char_count),
-                                    Style::default().fg(theme::DIM),
-                                ),
-                            ]));
-                            first_text_merged = true;
-                        }
-                        // 渲染尾部行预览（最后 4 行，⎿ 前缀，dim 颜色）
+                        lines.push(Line::from(vec![Span::styled(
+                            format!("Thought for {} chars", char_count),
+                            Style::default().fg(theme::DIM),
+                        )]));
                         if let Some(tail) = tail_lines {
                             for tail_line in tail.lines() {
                                 lines.push(Line::from(vec![
@@ -279,16 +232,10 @@ pub fn render_view_model(
                         }
                     }
                     ContentBlockView::ToolUse { .. } => {
-                        // 跳过 ToolUse 渲染（Task 2：AI 消息不再显示工具调用行）
-                        if !first_text_merged {
-                            first_text_merged = true;
-                        }
+                        // AI 消息不再显示工具调用行
                     }
                 }
             }
-
-            // Reasoning 块在首个位置时由上面的分支渲染 "Thought for N chars"
-            // 如果没有任何 block（blocks 为空），则不渲染任何行
 
             lines
         }
@@ -337,18 +284,18 @@ pub fn render_view_model(
 
             let tool_color = if *is_error { theme::ERROR } else { theme::SAGE };
 
-            // ⏺ 指示器：运行中闪烁，完成固定，失败 ✗
+            // ● 指示器：运行中闪烁，完成固定，失败 ✗
             let indicator = if is_running {
                 let tick = std::time::Instant::now().elapsed().as_millis() as u64 / 200;
                 if (tick / 4).is_multiple_of(2) {
-                    "⏺"
+                    "●"
                 } else {
                     " "
                 }
             } else if *is_error {
                 "✗"
             } else {
-                "⏺"
+                "●"
             };
 
             let mut header_spans = vec![
@@ -587,7 +534,7 @@ pub fn render_view_model(
                 let has_error = tools.iter().any(|t| t.is_error);
                 let color = if has_error { theme::ERROR } else { theme::SAGE };
                 lines.push(Line::from(vec![
-                    Span::styled("⏺ ", Style::default().fg(color)),
+                    Span::styled("● ", Style::default().fg(color)),
                     Span::styled(
                         "User answered Peri's questions:".to_string(),
                         Style::default().fg(theme::TEXT),
@@ -635,9 +582,9 @@ pub fn render_view_model(
             } else {
                 let summary = ToolCategory::summary_for_tools(tools);
 
-                // 统一 ⏺ 前缀，仅显示汇总行
+                // 统一 ● 前缀，仅显示汇总行
                 lines.push(Line::from(vec![
-                    Span::styled("⏺ ", Style::default().fg(theme::SAGE)),
+                    Span::styled("● ", Style::default().fg(theme::SAGE)),
                     Span::styled(summary, Style::default().fg(theme::MUTED)),
                 ]));
                 // 显示出错工具的错误摘要
