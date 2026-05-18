@@ -158,5 +158,6 @@ impl OtelAttribute {
 }
 
 /// OTLP trace export response (empty object = success)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OtelTraceResponse {}
