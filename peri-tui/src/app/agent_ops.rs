@@ -107,63 +107,64 @@ impl App {
         id: RequestId,
         params: serde_json::Value,
     ) -> (bool, bool, bool) {
+        use agent_client_protocol_schema::{CreateElicitationRequest, ElicitationMode};
         use peri_middlewares::ask_user::{AskUserBatchRequest, AskUserOption, AskUserQuestionData};
         use tokio::sync::oneshot;
 
-        // ACP CreateElicitationRequest serializes as:
-        //   {"mode": "form", "requestedSchema": {"properties": {...}}, "message": "..."}
-        // ElicitationMode uses #[serde(tag = "mode", rename_all = "snake_case")]
-        // StringPropertySchema uses #[serde(rename_all = "camelCase")]: oneOf
+        let req = match serde_json::from_value::<CreateElicitationRequest>(params) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to parse CreateElicitationRequest");
+                return (false, false, false);
+            }
+        };
+
         let mut questions = Vec::new();
-        let is_form = params.get("mode").and_then(|m| m.as_str()) == Some("form");
-        if is_form {
-            // requestedSchema (camelCase from ElicitationFormMode.rename_all = "camelCase")
-            if let Some(schema) = params
-                .get("requestedSchema")
-                .or_else(|| params.get("requested_schema"))
-            {
-                if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
-                    for (prop_id, prop) in props {
-                        let prop_type = prop
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("string");
-                        // StringPropertySchema: options in "oneOf"
-                        // MultiSelectPropertySchema (type=array): options in "items.anyOf"
-                        let is_multi = prop_type == "array";
-                        let options_arr = if is_multi {
-                            prop.get("items").and_then(|i| i.get("anyOf"))
-                        } else {
-                            prop.get("oneOf").or_else(|| prop.get("one_of"))
-                        };
-                        let options: Vec<AskUserOption> = options_arr
-                            .and_then(|o| o.as_array())
-                            .map(|arr| {
-                                arr.iter()
+
+        if let ElicitationMode::Form(form) = req.mode {
+            for (prop_id, prop) in &form.requested_schema.properties {
+                let (title, description, is_multi, options) = match prop {
+                    agent_client_protocol_schema::ElicitationPropertySchema::String(s) => (
+                        s.title.clone(),
+                        s.description.clone(),
+                        false,
+                        s.one_of
+                            .as_ref()
+                            .map(|opts| {
+                                opts.iter()
                                     .map(|o| AskUserOption {
-                                        // EnumOption serializes as {"const": value, "title": title}
-                                        // description is injected by ACP broker (not in EnumOption schema)
-                                        label: o["title"]
-                                            .as_str()
-                                            .or_else(|| o["const"].as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                        description: o["description"]
-                                            .as_str()
-                                            .map(|s| s.to_string()),
+                                        label: o.title.clone(),
+                                        description: None,
                                     })
                                     .collect()
                             })
-                            .unwrap_or_default();
-                        questions.push(AskUserQuestionData {
-                            tool_call_id: prop_id.clone(),
-                            question: prop["description"].as_str().unwrap_or("").to_string(),
-                            header: prop["title"].as_str().unwrap_or("").to_string(),
-                            multi_select: is_multi,
-                            options,
-                        });
-                    }
-                }
+                            .unwrap_or_default(),
+                    ),
+                    agent_client_protocol_schema::ElicitationPropertySchema::Array(a) => (
+                        a.title.clone(),
+                        a.description.clone(),
+                        true,
+                        match &a.items {
+                            agent_client_protocol_schema::MultiSelectItems::Titled(t) => t
+                                .options
+                                .iter()
+                                .map(|o| AskUserOption {
+                                    label: o.title.clone(),
+                                    description: None,
+                                })
+                                .collect(),
+                            _ => vec![],
+                        },
+                    ),
+                    _ => continue,
+                };
+                questions.push(AskUserQuestionData {
+                    tool_call_id: prop_id.clone(),
+                    question: description.unwrap_or_default(),
+                    header: title.unwrap_or_default(),
+                    multi_select: is_multi,
+                    options,
+                });
             }
         }
 
