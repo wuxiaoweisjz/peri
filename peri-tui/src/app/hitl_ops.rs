@@ -1,5 +1,9 @@
 use super::*;
 
+use agent_client_protocol::schema::{
+    RequestPermissionOutcome, RequestPermissionResponse, SelectedPermissionOutcome,
+};
+
 impl App {
     /// 上下移动列表光标
     pub fn hitl_move(&mut self, delta: isize) {
@@ -101,21 +105,21 @@ impl App {
         // ACP broker sends one item per RequestPermission, so index 0 is the decision.
         let is_approved = approved.first().copied().unwrap_or(false);
         let response = if is_approved {
-            serde_json::json!({
-                "outcome": {
-                    "outcome": "selected",
-                    "optionId": "allow_once"
-                }
-            })
+            RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
+                SelectedPermissionOutcome::new("allow_once"),
+            ))
         } else {
-            serde_json::json!({
-                "outcome": {
-                    "outcome": "cancelled"
-                }
-            })
+            RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled)
         };
+        let response_value = serde_json::to_value(&response).unwrap_or_else(|e| {
+            tracing::error!(error = %e, "Failed to serialize RequestPermissionResponse");
+            serde_json::json!({})
+        });
         tokio::spawn(async move {
-            if let Err(e) = acp_client.send_response(request_id, Ok(response)).await {
+            if let Err(e) = acp_client
+                .send_response(request_id, Ok(response_value))
+                .await
+            {
                 tracing::error!(error = %e, "ACP HITL response send failed");
             }
         });

@@ -263,6 +263,23 @@ impl AcpTuiClient {
         Ok(())
     }
 
+    /// Change the thinking config (effort + enabled) for the current session.
+    pub async fn set_thinking(&self, effort: &str, enabled: bool) -> Result<(), String> {
+        let session_id = self
+            .current_session_id
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("no active session")?;
+        let params = json!({ "session_id": session_id, "effort": effort, "enabled": enabled });
+        let _ = self
+            .transport
+            .send_request("session/set_thinking", params)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Cancel the currently running prompt.
     pub async fn cancel(&self) -> Result<(), String> {
         let session_id = self

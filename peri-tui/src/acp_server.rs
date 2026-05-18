@@ -44,8 +44,8 @@ struct SessionState {
 
 /// All cross-session configuration needed by the ACP server.
 pub struct AcpServerConfig {
-    pub provider: LlmProvider,
-    pub peri_config: Arc<PeriConfig>,
+    pub provider: Arc<RwLock<LlmProvider>>,
+    pub peri_config: Arc<RwLock<PeriConfig>>,
     pub permission_mode: Arc<SharedPermissionMode>,
     pub cron_scheduler: Option<Arc<parking_lot::Mutex<CronScheduler>>>,
     pub mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
@@ -195,18 +195,20 @@ async fn handle_request(
             let system_prompt =
                 build_system_prompt(None, &state.cwd, features, &cfg.plugin_agent_dirs);
 
-            let context_window = cfg.provider.context_window();
+            let context_window = cfg.provider.read().context_window();
 
             // Build agent using peri-acp's builder.
             // Convert TUI config types to peri-acp types at the boundary.
+            let provider_snapshot = cfg.provider.read().clone();
+            let peri_config_snapshot = cfg.peri_config.read().clone();
             let agent_output = build_agent_bridge(
-                &cfg.provider,
+                &provider_snapshot,
                 &state.cwd,
                 system_prompt,
                 event_handler,
                 cancel.clone(),
                 cfg.permission_mode.clone(),
-                cfg.peri_config.clone(),
+                Arc::new(peri_config_snapshot),
                 cfg.cron_scheduler.clone(),
                 session_id.clone(),
                 broker,
@@ -334,18 +336,56 @@ async fn handle_request(
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
 
-        "session/set_model" => Ok(json!({ "status": "ok" })),
+        "session/set_model" => {
+            let alias = params.get("model").and_then(|v| v.as_str()).unwrap_or("");
+            let mut provider = cfg.provider.write();
+            let new_provider = LlmProvider::from_config_for_alias(&cfg.peri_config.read(), alias)
+                .unwrap_or_else(|| provider.clone());
+            info!(alias = %alias, model = %new_provider.model_name(), "Model changed");
+            *provider = new_provider;
+            Ok(json!({ "status": "ok" }))
+        }
 
         "session/set_mode" => {
-            let session_id = params
-                .get("session_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let mode = params
+            let mode_str = params
                 .get("mode")
                 .and_then(|v| v.as_str())
                 .unwrap_or("default");
-            info!(session_id = %session_id, mode = %mode, "Permission mode changed");
+            let mode = match mode_str {
+                "dont_ask" => PermissionMode::DontAsk,
+                "accept_edit" => PermissionMode::AcceptEdit,
+                "auto" => PermissionMode::AutoMode,
+                "bypass" => PermissionMode::Bypass,
+                _ => PermissionMode::Default,
+            };
+            cfg.permission_mode.store(mode);
+            info!(mode = %mode_str, "Permission mode changed");
+            Ok(json!({ "status": "ok" }))
+        }
+
+        "session/set_thinking" => {
+            let effort = params
+                .get("effort")
+                .and_then(|v| v.as_str())
+                .unwrap_or("medium");
+            let enabled = params
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            {
+                let mut cfg_guard = cfg.peri_config.write();
+                let thinking = cfg_guard.config.thinking.get_or_insert_with(|| {
+                    crate::config::ThinkingConfig {
+                        enabled: true,
+                        budget_tokens: 8000,
+                        effort: "medium".to_string(),
+                        max_tokens: 32000,
+                    }
+                });
+                thinking.enabled = enabled;
+                thinking.effort = effort.to_string();
+            }
+            info!(effort = %effort, enabled = %enabled, "Thinking config changed");
             Ok(json!({ "status": "ok" }))
         }
 

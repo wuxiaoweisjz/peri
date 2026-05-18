@@ -705,8 +705,10 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             let shared_tools = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
 
             let server_config = AcpServerConfig {
-                provider: provider.clone(),
-                peri_config: Arc::new(app.services.peri_config.clone().unwrap_or_default()),
+                provider: Arc::new(parking_lot::RwLock::new(provider.clone())),
+                peri_config: Arc::new(parking_lot::RwLock::new(
+                    app.services.peri_config.clone().unwrap_or_default(),
+                )),
                 permission_mode: app.services.permission_mode.clone(),
                 cron_scheduler: Some(app.services.cron.scheduler.clone()),
                 mcp_pool: app.services.mcp_pool.clone(),
