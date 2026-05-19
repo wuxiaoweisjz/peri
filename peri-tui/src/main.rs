@@ -418,7 +418,8 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                     };
                     let config_options = {
                         let c = ctx.peri_config.read();
-                        build_config_options(&c)
+                        let p = ctx.provider.read();
+                        build_config_options(&c, &p, ctx.permission_mode.load())
                     };
                     responder.respond(
                         NewSessionResponse::new(SessionId::new(&*sid))
@@ -556,10 +557,30 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                     let config_id = req.config_id.0.as_ref();
                     match &req.value {
                         agent_client_protocol_schema::SessionConfigOptionValue::ValueId { value } => {
-                            let effort = value.0.as_ref();
-                            if config_id == "thinking_effort" {
-                                apply_thinking_effort(&ctx.peri_config, effort);
-                                tracing::info!(effort = %effort, "Thinking effort changed via configOption");
+                            let v = value.0.as_ref();
+                            match config_id {
+                                "mode" => {
+                                    let mode = parse_permission_mode(v);
+                                    ctx.permission_mode.store(mode);
+                                    tracing::info!(mode = %v, "Permission mode changed via configOption");
+                                }
+                                "model" => {
+                                    let new_provider = {
+                                        let cfg = ctx.peri_config.read();
+                                        peri_tui::app::agent::LlmProvider::from_config_for_alias(&cfg, v)
+                                    };
+                                    if let Some(new_provider) = new_provider {
+                                        tracing::info!(model_id = %v, model = %new_provider.model_name(), "Model changed via configOption");
+                                        *ctx.provider.write() = new_provider;
+                                    }
+                                }
+                                "thinking_effort" => {
+                                    apply_thinking_effort(&ctx.peri_config, v);
+                                    tracing::info!(effort = %v, "Thinking effort changed via configOption");
+                                }
+                                _ => {
+                                    tracing::debug!(config_id = %config_id, "Unknown config option");
+                                }
                             }
                         }
                         agent_client_protocol_schema::SessionConfigOptionValue::Boolean { value: _ } => {
@@ -571,7 +592,8 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                     }
                     let config_options = {
                         let cfg = ctx.peri_config.read();
-                        build_config_options(&cfg)
+                        let p = ctx.provider.read();
+                        build_config_options(&cfg, &p, ctx.permission_mode.load())
                     };
                     responder.respond(SetSessionConfigOptionResponse::new(config_options))
                 }

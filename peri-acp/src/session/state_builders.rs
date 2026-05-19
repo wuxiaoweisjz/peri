@@ -94,15 +94,84 @@ pub fn build_model_state(provider: &LlmProvider, peri_config: &PeriConfig) -> Se
     SessionModelState::new(ModelId::new(active_alias), available)
 }
 
-/// Build ACP `SessionConfigOption` list from config (thinking effort selector).
-pub fn build_config_options(peri_config: &PeriConfig) -> Vec<SessionConfigOption> {
+/// Build ACP `SessionConfigOption` list from config.
+///
+/// Per ACP spec, config options supersede the older Session Modes API.
+/// Returns mode, model, and thinking_effort in priority order (higher priority first).
+pub fn build_config_options(
+    peri_config: &PeriConfig,
+    provider: &LlmProvider,
+    current_mode: PermissionMode,
+) -> Vec<SessionConfigOption> {
+    let mut options = Vec::with_capacity(3);
+
+    // ── Mode (category: mode) ──
+    let current_mode_id = match current_mode {
+        PermissionMode::Default => "default",
+        PermissionMode::DontAsk => "dont_ask",
+        PermissionMode::AcceptEdit => "accept_edit",
+        PermissionMode::AutoMode => "auto",
+        PermissionMode::Bypass => "bypass",
+    };
+    let mode_options = vec![
+        SessionConfigSelectOption::new(SessionConfigValueId::new("default"), "Default"),
+        SessionConfigSelectOption::new(SessionConfigValueId::new("dont_ask"), "Don't Ask"),
+        SessionConfigSelectOption::new(SessionConfigValueId::new("accept_edit"), "Accept Edit"),
+        SessionConfigSelectOption::new(SessionConfigValueId::new("auto"), "Auto Mode"),
+        SessionConfigSelectOption::new(SessionConfigValueId::new("bypass"), "Bypass"),
+    ];
+    options.push(
+        SessionConfigOption::select(
+            SessionConfigId::new("mode"),
+            "Session Mode",
+            SessionConfigValueId::new(current_mode_id),
+            SessionConfigSelectOptions::Ungrouped(mode_options),
+        )
+        .category(SessionConfigOptionCategory::Mode),
+    );
+
+    // ── Model (category: model) ──
+    let active_alias = peri_config.config.active_alias.clone();
+    let active_provider = peri_config.config.providers.iter().find(|prov| {
+        prov.id == peri_config.config.active_provider_id
+            || peri_config.config.active_provider_id.is_empty()
+    });
+    let mut model_options = Vec::new();
+    if let Some(prov) = active_provider {
+        for alias in ["opus", "sonnet", "haiku"] {
+            if let Some(model_name) = prov.models.get_model(alias) {
+                if !model_name.is_empty() {
+                    model_options.push(SessionConfigSelectOption::new(
+                        SessionConfigValueId::new(alias.to_string()),
+                        format!("{} ({})", alias, model_name),
+                    ));
+                }
+            }
+        }
+    }
+    if model_options.is_empty() {
+        model_options.push(SessionConfigSelectOption::new(
+            SessionConfigValueId::new("current".to_string()),
+            provider.model_name().to_string(),
+        ));
+    }
+    options.push(
+        SessionConfigOption::select(
+            SessionConfigId::new("model"),
+            "Model",
+            SessionConfigValueId::new(active_alias),
+            SessionConfigSelectOptions::Ungrouped(model_options),
+        )
+        .category(SessionConfigOptionCategory::Model),
+    );
+
+    // ── Thinking effort (category: thought_level) ──
     let effort = peri_config
         .config
         .thinking
         .as_ref()
         .map(|t| t.effort.as_str())
         .unwrap_or("medium");
-
     let thinking_options = vec![
         SessionConfigSelectOption::new(SessionConfigValueId::new("low"), "Low".to_string()),
         SessionConfigSelectOption::new(SessionConfigValueId::new("medium"), "Medium".to_string()),
@@ -110,12 +179,15 @@ pub fn build_config_options(peri_config: &PeriConfig) -> Vec<SessionConfigOption
         SessionConfigSelectOption::new(SessionConfigValueId::new("xhigh"), "XHigh".to_string()),
         SessionConfigSelectOption::new(SessionConfigValueId::new("max"), "Max".to_string()),
     ];
+    options.push(
+        SessionConfigOption::select(
+            SessionConfigId::new("thinking_effort"),
+            "Thinking Effort",
+            SessionConfigValueId::new(effort),
+            SessionConfigSelectOptions::Ungrouped(thinking_options),
+        )
+        .category(SessionConfigOptionCategory::ThoughtLevel),
+    );
 
-    vec![SessionConfigOption::select(
-        SessionConfigId::new("thinking_effort"),
-        "Thinking Effort",
-        SessionConfigValueId::new(effort),
-        SessionConfigSelectOptions::Ungrouped(thinking_options),
-    )
-    .category(SessionConfigOptionCategory::ThoughtLevel)]
+    options
 }

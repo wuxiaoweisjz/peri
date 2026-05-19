@@ -193,7 +193,8 @@ async fn handle_request(
             };
             let config_options = {
                 let c = cfg.peri_config.read();
-                build_config_options(&c)
+                let p = cfg.provider.read();
+                build_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = NewSessionResponse::new(SessionId::new(&*session_id))
                 .modes(modes)
@@ -238,6 +239,21 @@ async fn handle_request(
                 .unwrap_or("");
             let value = params.get("value").and_then(|v| v.as_str()).unwrap_or("");
             match config_id {
+                "mode" => {
+                    let mode = parse_permission_mode(value);
+                    cfg.permission_mode.store(mode);
+                    info!(mode = %value, "Permission mode changed via configOption");
+                }
+                "model" => {
+                    let new_provider = {
+                        let c = cfg.peri_config.read();
+                        LlmProvider::from_config_for_alias(&c, value)
+                    };
+                    if let Some(new_provider) = new_provider {
+                        info!(model_id = %value, model = %new_provider.model_name(), "Model changed via configOption");
+                        *cfg.provider.write() = new_provider;
+                    }
+                }
                 "thinking_effort" => {
                     apply_thinking_effort(&cfg.peri_config, value);
                     info!(effort = %value, "Thinking effort changed via configOption");
@@ -248,7 +264,8 @@ async fn handle_request(
             }
             let config_options = {
                 let c = cfg.peri_config.read();
-                build_config_options(&c)
+                let p = cfg.provider.read();
+                build_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = SetSessionConfigOptionResponse::new(config_options);
             serde_json::to_value(resp)
@@ -274,7 +291,8 @@ async fn handle_request(
             info!(effort = %effort, enabled = %enabled, "Thinking config changed");
             let config_options = {
                 let c = cfg.peri_config.read();
-                build_config_options(&c)
+                let p = cfg.provider.read();
+                build_config_options(&c, &p, cfg.permission_mode.load())
             };
             let resp = SetSessionConfigOptionResponse::new(config_options);
             serde_json::to_value(resp)
