@@ -171,6 +171,7 @@ fn main() -> Result<()> {
 struct SessionInfo {
     #[allow(dead_code)]
     session_id: String,
+    thread_id: String,
     cwd: String,
     history: Vec<peri_agent::messages::BaseMessage>,
     cancel_token: Option<peri_agent::agent::AgentCancellationToken>,
@@ -193,7 +194,7 @@ struct StdioContext {
         >,
     >,
     sessions: parking_lot::RwLock<std::collections::HashMap<String, SessionInfo>>,
-    session_counter: std::sync::atomic::AtomicU64,
+    thread_store: Arc<dyn peri_agent::thread::ThreadStore>,
 }
 
 /// Stdio 模式下的简化 Broker：直接 approve 所有权限请求，questions 返回空答案。
@@ -316,6 +317,19 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
     let tool_search_index = Arc::new(peri_middlewares::tool_search::ToolSearchIndex::new());
     let shared_tools = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
 
+    // 初始化 thread 存储（失败时 fallback 到临时目录）
+    let thread_store: Arc<dyn peri_agent::thread::ThreadStore> =
+        match peri_tui::thread::SqliteThreadStore::default_path().await {
+            Ok(store) => Arc::new(store),
+            Err(_) => Arc::new(
+                peri_tui::thread::SqliteThreadStore::new(
+                    std::env::temp_dir().join("zen-threads.db"),
+                )
+                .await
+                .expect("无法创建临时 SQLite 数据库"),
+            ),
+        };
+
     // 构建共享的 ServerContext，所有请求处理器通过 Arc 共享
     let ctx = Arc::new(StdioContext {
         provider: parking_lot::RwLock::new(provider),
@@ -330,7 +344,7 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
         tool_search_index,
         shared_tools,
         sessions: parking_lot::RwLock::new(std::collections::HashMap::new()),
-        session_counter: std::sync::atomic::AtomicU64::new(0),
+        thread_store,
     });
 
     use agent_client_protocol::schema::{
@@ -372,20 +386,30 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                 let ctx = ctx_clone.clone();
                 async move |req: NewSessionRequest, responder, _cx| {
                     let cwd_str = req.cwd.to_string_lossy().to_string();
-                    let mut sessions = ctx.sessions.write();
-                    let counter = ctx.session_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                    let sid = format!("session-{}", counter);
-                    sessions.insert(
-                        sid.clone(),
-                        SessionInfo {
-                            session_id: sid.clone(),
-                            cwd: cwd_str,
-                            history: Vec::new(),
-                            cancel_token: None,
-                        },
-                    );
-                    tracing::info!(session_id = %sid, "ACP session created");
-                    drop(sessions);
+                    let meta = peri_agent::thread::ThreadMeta::new(&cwd_str);
+                    let thread_id = match ctx.thread_store.create_thread(meta).await {
+                        Ok(id) => id,
+                        Err(e) => {
+                            tracing::error!(error = %e, "Thread creation failed");
+                            let _ = responder.respond(NewSessionResponse::new(SessionId::new("error")));
+                            return Ok(());
+                        }
+                    };
+                    let sid = thread_id.clone();
+                    {
+                        let mut sessions = ctx.sessions.write();
+                        sessions.insert(
+                            sid.clone(),
+                            SessionInfo {
+                                session_id: sid.clone(),
+                                thread_id: thread_id.clone(),
+                                cwd: cwd_str,
+                                history: Vec::new(),
+                                cancel_token: None,
+                            },
+                        );
+                    }
+                    tracing::info!(session_id = %sid, "ACP session created with ThreadStore");
                     let modes = build_mode_state(&ctx.permission_mode);
                     let models = {
                         let p = ctx.provider.read();
@@ -420,16 +444,17 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                         }
                     }).collect::<Vec<&str>>().join("");
 
-                    let (agent_cwd, history, is_empty_history) = {
+                    let (agent_cwd, history, is_empty_history, thread_id) = {
                         let sessions = ctx.sessions.read();
                         match sessions.get(&sid) {
-                            Some(s) => (s.cwd.clone(), s.history.clone(), s.history.is_empty()),
+                            Some(s) => (s.cwd.clone(), s.history.clone(), s.history.is_empty(), s.thread_id.clone()),
                             None => {
                                 let _ = responder.respond(PromptResponse::new(StopReason::EndTurn));
                                 return Ok(());
                             }
                         }
                     };
+                    let history_len = history.len();
 
                     let cancel = AgentCancellationToken::new();
                     {
@@ -469,6 +494,13 @@ async fn run_acp_stdio(cwd: String) -> Result<()> {
                     )
                     .await;
 
+                    // Persist new messages to ThreadStore and update in-memory state.
+                    if result.ok && history_len < result.messages.len() {
+                        let new_msgs = &result.messages[history_len..];
+                        if let Err(e) = ctx.thread_store.append_messages(&thread_id, new_msgs).await {
+                            tracing::warn!(error = %e, "Failed to persist messages to ThreadStore");
+                        }
+                    }
                     {
                         let mut sessions = ctx.sessions.write();
                         if let Some(s) = sessions.get_mut(&sid) {

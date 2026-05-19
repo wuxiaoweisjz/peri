@@ -26,6 +26,7 @@ pub use peri_acp::session::state_builders::{
 use peri_acp::transport::types::{AcpError, IncomingMessage};
 use peri_agent::agent::AgentCancellationToken;
 use peri_agent::messages::BaseMessage;
+use peri_agent::thread::ThreadMeta;
 use peri_middlewares::prelude::*;
 
 use agent_client_protocol::schema::{
@@ -42,6 +43,7 @@ use crate::config::PeriConfig;
 struct SessionState {
     #[allow(dead_code)]
     session_id: String,
+    thread_id: String,
     cwd: String,
     history: Vec<BaseMessage>,
     cancel_token: Option<AgentCancellationToken>,
@@ -79,7 +81,6 @@ pub async fn run_acp_server(
     cfg: AcpServerConfig,
 ) {
     let sessions: SharedSessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-    let mut session_counter: u64 = 0;
 
     while let Some(msg) = transport.recv().await {
         match msg {
@@ -100,6 +101,7 @@ pub async fn run_acp_server(
                     let tool_search_index = cfg.tool_search_index.clone();
                     let shared_tools = cfg.shared_tools.clone();
                     let plugin_lsp_servers = cfg.plugin_lsp_servers.clone();
+                    let thread_store = cfg.thread_store.clone();
                     tokio::spawn(async move {
                         let result = execute_prompt(
                             params,
@@ -116,15 +118,14 @@ pub async fn run_acp_server(
                             shared_tools,
                             &plugin_lsp_servers,
                             &transport,
+                            &thread_store,
                         )
                         .await;
                         let _ = transport.send_response(id, result).await;
                     });
                 } else {
                     let mut sessions = sessions.lock().await;
-                    let result =
-                        handle_request(&method, &params, &cfg, &mut sessions, &mut session_counter)
-                            .await;
+                    let result = handle_request(&method, &params, &cfg, &mut sessions).await;
                     let _ = transport.send_response(id, result).await;
                 }
             }
@@ -146,7 +147,6 @@ async fn handle_request(
     params: &Value,
     cfg: &AcpServerConfig,
     sessions: &mut HashMap<String, SessionState>,
-    counter: &mut u64,
 ) -> Result<Value, AcpError> {
     match method {
         "initialize" => {
@@ -167,18 +167,24 @@ async fn handle_request(
                 .and_then(|v| v.as_str())
                 .unwrap_or(".")
                 .to_string();
-            *counter += 1;
-            let session_id = format!("session-{}", counter);
+            let meta = ThreadMeta::new(&cwd);
+            let thread_id = cfg
+                .thread_store
+                .create_thread(meta)
+                .await
+                .map_err(|e| AcpError::new(-32603, format!("Thread creation failed: {e}")))?;
+            let session_id = thread_id.clone();
             sessions.insert(
                 session_id.clone(),
                 SessionState {
                     session_id: session_id.clone(),
+                    thread_id: thread_id.clone(),
                     cwd,
                     history: Vec::new(),
                     cancel_token: None,
                 },
             );
-            info!(session_id = %session_id, "ACP session created");
+            info!(session_id = %session_id, "ACP session created with ThreadStore");
             let modes = build_mode_state(&cfg.permission_mode);
             let models = {
                 let p = cfg.provider.read();
@@ -317,6 +323,7 @@ async fn execute_prompt(
     shared_tools: Arc<RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
     plugin_lsp_servers: &[peri_lsp::config::LspServerConfig],
     transport: &Arc<dyn peri_acp::transport::AcpTransport>,
+    thread_store: &Arc<dyn peri_agent::thread::ThreadStore>,
 ) -> Result<Value, AcpError> {
     let session_id = params
         .get("sessionId")
@@ -344,7 +351,7 @@ async fn execute_prompt(
     }
 
     // Read session data under lock, then release immediately.
-    let (cwd, history, is_empty) = {
+    let (cwd, history, is_empty, thread_id) = {
         let sessions = sessions.lock().await;
         let state = sessions
             .get(&session_id)
@@ -353,8 +360,10 @@ async fn execute_prompt(
             state.cwd.clone(),
             state.history.clone(),
             state.history.is_empty(),
+            state.thread_id.clone(),
         )
     };
+    let history_len = history.len();
 
     let broker: Arc<dyn peri_agent::interaction::UserInteractionBroker> = Arc::new(
         AcpTransportBroker::new(Arc::clone(transport), session_id.clone().into()),
@@ -387,12 +396,19 @@ async fn execute_prompt(
     )
     .await;
 
-    // Update session history and clear cancel token.
+    // Persist new messages to ThreadStore and update in-memory state.
     {
         let mut sessions = sessions.lock().await;
         if let Some(state) = sessions.get_mut(&session_id) {
             if result.ok {
                 info!(session_id = %session_id, messages = result.messages.len(), "Agent execution completed");
+                // Persist only the newly added messages.
+                if history_len < result.messages.len() {
+                    let new_msgs = &result.messages[history_len..];
+                    if let Err(e) = thread_store.append_messages(&thread_id, new_msgs).await {
+                        tracing::warn!(error = %e, "Failed to persist messages to ThreadStore");
+                    }
+                }
             }
             state.history = result.messages;
             state.cancel_token = None;
