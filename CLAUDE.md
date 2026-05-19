@@ -122,24 +122,34 @@ scripts/start-relay.sh               # 启动 Relay Server（端口 8080）
 
 **数据流**：
 ```
-TUI 输入 → AcpTuiClient.new_session() / .prompt()
-         → MpscClientTransport.send_request/notification()
-         → MpscServerTransport.recv() (ACP Server, tokio::spawn)
-         → acp_server::handle_request("session/prompt")
-         → build_agent_bridge() → peri_acp::agent::builder::build_agent()
-         → agent.execute()
-         → ExecutorEvent → map_executor_to_updates() → SessionUpdate
-         → transport.send_notification("notifications/agent_event")
-         → AcpTuiClient.pump_notifications() → AcpNotification::AgentEvent
-         → handle_acp_notification() → map_executor_event() → AgentEvent
-         → handle_agent_event() → UI 更新
+TUI 路径:
+  TUI 输入 → AcpTuiClient.new_session() / .prompt()
+           → MpscClientTransport.send_request/notification()
+           → MpscServerTransport.recv() (ACP Server, tokio::spawn)
+           → acp_server::execute_prompt()
+           → peri_acp::session::executor::execute_prompt() + TransportEventSink
+           → peri_acp::agent::builder::build_agent() → agent.execute()
+           → ExecutorEvent → TransportEventSink.push_event()
+             → peri/agent_event (TUI) + peri/* (compact) + session/update (标准ACP)
+           → AcpTuiClient.pump_notifications() → AcpNotification::AgentEvent
+           → handle_acp_notification() → map_executor_event() → AgentEvent
+           → handle_agent_event() → UI 更新
+
+Stdio 路径:
+  SDK on_receive_request("session/prompt")
+    → peri_acp::session::executor::execute_prompt() + StdioEventSink
+    → ExecutorEvent → StdioEventSink.push_event() → SessionNotification
+    → SDK cx.send_notification() → stdout JSON-RPC
 ```
 
 **核心文件**：
 | 文件 | 职责 |
 |------|------|
+| `peri-acp/src/session/executor.rs` | 共享 agent 执行管线：`execute_prompt()` + `EventSink` trait，TUI 和 stdio 共用 |
+| `peri-acp/src/session/event_sink.rs` | `EventSink` trait + `TransportEventSink`（TUI）+ `StdioEventSink`（stdio） |
+| `peri-acp/src/session/state_builders.rs` | ACP 协议状态构建器：modes/models/configOptions |
 | `peri-acp/src/` | ACP 服务层：transport trait、agent builder、event mapper、broker、prompt、provider、session、langfuse、hooks、lsp |
-| `peri-tui/src/acp_server.rs` | ACP Server 主循环：接收请求 → 构建 Agent → 执行 → 推送 SessionUpdate 通知 |
+| `peri-tui/src/acp_server.rs` | TUI ACP Server 主循环：接收请求 → 委托 executor 执行 → 推送通知（re-export state builders） |
 | `peri-tui/src/acp_client/client.rs` | `AcpTuiClient`：TUI 端 ACP 封装，提供 `new_session()`/`prompt()`/`set_model()`/`set_mode()`/`cancel()`/`send_response()` |
 | `peri-tui/src/app/agent_ops.rs` | `handle_acp_notification()`：将 `AcpNotification` 桥接为 `AgentEvent`，复用现有 UI 处理逻辑 |
 | `peri-tui/src/app/agent_submit.rs` | `submit_message()`：通过 `acp_client.new_session()` + `acp_client.prompt()` 提交用户输入 |
@@ -159,9 +169,9 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 - `session/set_mode` → 权限模式切换
 - `$/cancel_request` → 取消当前 session 的 Agent 执行
 
-**Transitional Note**: TUI 当前保留 `AgentEvent` 枚举和 `handle_agent_event()` 处理器（`agent_ops.rs:handle_agent_event`）以复用战验过的 UI 逻辑。`agent.rs` 中 `AgentRunConfig`/`BareAgentConfig`/`build_bare_agent()`/`run_universal_agent()` 已删除（Task 7 清理）。`peri-tui/Cargo.toml` 仍保留 `peri-agent`/`peri-middlewares` 直接依赖（过渡期，通过 peri-acp 间接可用）。
+**Transitional Note**: TUI 当前保留 `AgentEvent` 枚举和 `handle_agent_event()` 处理器（`agent_ops.rs:handle_agent_event`）以复用战验过的 UI 逻辑。Config/LlmProvider 类型已统一（TUI re-export `peri-acp` 的定义）。Agent 执行逻辑已通过 `EventSink` trait + `executor::execute_prompt()` 统一到 `peri-acp`，TUI 和 stdio 各自提供 EventSink 实现。`peri-tui/Cargo.toml` 仍保留 `peri-agent`/`peri-middlewares` 直接依赖（用于 UI 渲染所需的 `BaseMessage`/`ContentBlock` 等类型和中间件组件初始化）。
 
-**[TRAP]** Agent 构建统一通过 `peri_acp::agent::builder::build_agent()`（`AcpAgentConfig`），TUI 端 `acp_server.rs` 通过 `build_agent_bridge()` 调用。禁止在 TUI 层直接构建 ReActAgent。
+**[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`（内部调用 `peri_acp::agent::builder::build_agent()`）。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵——使用 `EventSink` 实现委托给 executor。
 
 ## HITL 审批
 
