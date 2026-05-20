@@ -28,6 +28,9 @@ pub trait PanelComponent: Any {
         EventResult::NotConsumed
     }
 
+    /// 直接设置滚动偏移（用于滚动条拖拽）
+    fn set_scroll_offset(&mut self, _offset: u16) {}
+
     /// 处理鼠标事件（点击、悬停移动等）
     ///
     /// 默认不消费。面板按需覆写以支持鼠标点击选择等交互。
