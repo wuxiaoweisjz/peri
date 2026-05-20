@@ -74,13 +74,6 @@ impl App {
             tail_vms: view_msgs,
         });
 
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pre_compact_token_snapshot = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .auto_compact_failures = 0;
-
         (true, false, false)
     }
 
@@ -91,16 +84,6 @@ impl App {
                 .tr_args("app-compact-failed", &[("error".into(), msg.into())]),
         );
         self.apply_pipeline_action(PipelineAction::AddMessage(vm));
-
-        if let Some(snapshot) = self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pre_compact_token_snapshot
-            .take()
-        {
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .session_token_tracker = snapshot;
-        }
 
         (true, false, false)
     }

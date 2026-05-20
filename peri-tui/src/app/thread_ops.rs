@@ -109,12 +109,6 @@ impl App {
             .reset();
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
-            .pre_compact_token_snapshot = None;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .auto_compact_failures = 0;
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
             .retry_status = None;
         self.session_mgr.sessions[self.session_mgr.active]
             .agent
@@ -322,55 +316,6 @@ impl App {
             .messages
             .render_tx
             .send(RenderEvent::Clear);
-    }
-
-    /// 压缩当前对话上下文：通过 ACP session/compact 请求执行
-    pub fn start_compact(&mut self, instructions: String) {
-        if self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_state_messages
-            .is_empty()
-        {
-            self.push_system_note(self.services.lc.tr("app-compact-no-context"));
-            self.render_rebuild();
-            return;
-        }
-
-        let acp_client = match self.acp_client {
-            Some(ref c) => c.clone(),
-            None => {
-                self.push_system_note("ACP client not available".to_string());
-                self.render_rebuild();
-                return;
-            }
-        };
-
-        self.set_loading(true);
-        self.session_mgr.sessions[self.session_mgr.active]
-            .spinner_state
-            .set_verb(Some(self.services.lc.tr("app-compact-compressing").leak()));
-
-        // 保存快照：compact 失败时恢复，防止 tracker 失去对上下文大小的感知
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .pre_compact_token_snapshot = Some(
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .session_token_tracker
-                .clone(),
-        );
-        self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .session_token_tracker
-            .reset();
-
-        self.render_rebuild();
-
-        tokio::spawn(async move {
-            if let Err(e) = acp_client.compact(&instructions).await {
-                tracing::error!(error = %e, "ACP compact request failed");
-            }
-        });
     }
 
     /// 打开 thread 浏览面板（通过命令触发）

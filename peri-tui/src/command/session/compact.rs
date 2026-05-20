@@ -1,5 +1,6 @@
-use crate::app::{App, MessageViewModel};
+use crate::app::App;
 use crate::command::Command;
+use crate::i18n::LcRegistry;
 
 pub struct CompactCommand;
 
@@ -8,20 +9,20 @@ impl Command for CompactCommand {
         "compact"
     }
 
-    fn description(&self, _lc: &crate::i18n::LcRegistry) -> String {
+    fn description(&self, _lc: &LcRegistry) -> String {
         _lc.tr("command-compact-description")
     }
 
-    fn execute(&self, app: &mut App, args: &str) {
+    fn execute(&self, app: &mut App, _args: &str) {
         if app.session_mgr.sessions[app.session_mgr.active].ui.loading {
             app.session_mgr.sessions[app.session_mgr.active]
                 .messages
                 .view_messages
-                .push(MessageViewModel::system(
-                    "Agent 运行中，无法执行压缩".to_string(),
+                .push(crate::app::MessageViewModel::system(
+                    app.services.lc.tr("compact-agent-running"),
                 ));
             return;
         }
-        app.start_compact(args.to_string());
+        app.submit_message("/compact".to_string());
     }
 }

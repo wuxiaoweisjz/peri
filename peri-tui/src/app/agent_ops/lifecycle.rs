@@ -112,16 +112,6 @@ impl App {
                 .agent_rx = None;
         }
         self.cleanup_agent_state(None);
-        // circuit breaker 渐进恢复：每轮成功对话将 failure 计数减半
-        if self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .auto_compact_failures
-            > 0
-        {
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .auto_compact_failures /= 2;
-        }
         // 检查缓冲消息，合并发送
         if !self.session_mgr.sessions[self.session_mgr.active]
             .messages

@@ -2376,26 +2376,6 @@ fn test_system_note_error_detection() {
     );
 }
 
-// ── Compact Start Feedback ──────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_compact_empty_shows_no_context_message() {
-    let (mut app, _handle) = App::new_headless(120, 30).await;
-    // 空消息时调用 compact 应提示无上下文
-    app.start_compact(String::new());
-    let msgs = &app.session_mgr.sessions[app.session_mgr.active]
-        .messages
-        .view_messages;
-    let has_hint = msgs.iter().any(|vm| {
-        if let crate::ui::message_view::MessageViewModel::SystemNote { content } = vm {
-            content.contains("No compressible context")
-        } else {
-            false
-        }
-    });
-    assert!(has_hint, "空消息 compact 应显示无上下文提示");
-}
-
 // ─── 错误信息红色显示测试 ─────────────────────────────────────────────────
 
 #[test]

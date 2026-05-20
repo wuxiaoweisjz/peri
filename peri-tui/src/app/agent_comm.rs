@@ -49,10 +49,6 @@ pub struct AgentComm {
     pub session_token_tracker: peri_agent::agent::token::TokenTracker,
     /// 当前模型的上下文窗口大小（从最近一次 TokenUsageUpdate 中的 model 推断）
     pub context_window: u32,
-    /// 连续 auto-compact 失败次数（circuit breaker，达到 3 次后停止自动触发）
-    pub auto_compact_failures: u32,
-    /// compact 前的 token tracker 快照（compact 失败时恢复，防止 tracker 失去对上下文大小的感知）
-    pub pre_compact_token_snapshot: Option<peri_agent::agent::token::TokenTracker>,
     /// LLM 重试状态（重试中时为 Some，收到下一个正常事件时清除）
     pub retry_status: Option<RetryStatus>,
     /// SubAgent 执行深度计数器（>0 表示当前在 SubAgent 内，忽略其 TokenUsageUpdate）
@@ -101,8 +97,6 @@ impl Default for AgentComm {
             agent_event_queue: Vec::new(),
             session_token_tracker: peri_agent::agent::token::TokenTracker::default(),
             context_window: 200_000,
-            auto_compact_failures: 0,
-            pre_compact_token_snapshot: None,
             retry_status: None,
             subagent_depth: 0,
             session_start_time: None,

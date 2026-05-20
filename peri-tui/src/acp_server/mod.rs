@@ -24,12 +24,10 @@ use peri_middlewares::prelude::*;
 use crate::app::agent::LlmProvider;
 use crate::config::PeriConfig;
 
-mod compact;
 mod notify;
 mod prompt;
 mod requests;
 
-pub(crate) use compact::execute_compact;
 pub(crate) use notify::{extract_session_id, handle_notification, send_session_info_update};
 pub(crate) use prompt::execute_prompt;
 pub(crate) use requests::handle_request;
@@ -82,7 +80,7 @@ pub async fn run_acp_server(
     while let Some(msg) = transport.recv().await {
         match msg {
             IncomingMessage::Request { id, method, params } => {
-                if method == "session/prompt" || method == "session/compact" {
+                if method == "session/prompt" {
                     // Spawn long-running prompt execution so the server loop
                     // continues processing $/cancel_request notifications.
                     let sessions = sessions.clone();
@@ -99,42 +97,27 @@ pub async fn run_acp_server(
                     let shared_tools = cfg.shared_tools.clone();
                     let plugin_lsp_servers = cfg.plugin_lsp_servers.clone();
                     let thread_store = cfg.thread_store.clone();
-                    let method_clone = method.clone();
                     let prompt_session_id = extract_session_id(&params, "").to_string();
                     tokio::spawn(async move {
-                        let result = if method_clone == "session/compact" {
-                            execute_compact(
-                                params,
-                                &sessions,
-                                &provider,
-                                &peri_config,
-                                &hook_groups,
-                                &transport,
-                                &thread_store,
-                            )
-                            .await
-                        } else {
-                            execute_prompt(
-                                params,
-                                &sessions,
-                                &provider,
-                                &peri_config,
-                                &permission_mode,
-                                cron_scheduler,
-                                &plugin_skill_dirs,
-                                &plugin_agent_dirs,
-                                &hook_groups,
-                                mcp_pool,
-                                tool_search_index,
-                                shared_tools,
-                                &plugin_lsp_servers,
-                                &transport,
-                                &thread_store,
-                            )
-                            .await
-                        };
+                        let result = execute_prompt(
+                            params,
+                            &sessions,
+                            &provider,
+                            &peri_config,
+                            &permission_mode,
+                            cron_scheduler,
+                            &plugin_skill_dirs,
+                            &plugin_agent_dirs,
+                            &hook_groups,
+                            mcp_pool,
+                            tool_search_index,
+                            shared_tools,
+                            &plugin_lsp_servers,
+                            &transport,
+                            &thread_store,
+                        )
+                        .await;
                         let _ = transport.send_response(id, result).await;
-                        // Send SessionInfoUpdate after prompt/compact completes
                         if !prompt_session_id.is_empty() {
                             send_session_info_update(transport.as_ref(), &prompt_session_id).await;
                         }
