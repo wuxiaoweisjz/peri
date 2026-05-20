@@ -14,6 +14,7 @@
 //! ```
 
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
 use ratatui::{backend::TestBackend, Terminal};

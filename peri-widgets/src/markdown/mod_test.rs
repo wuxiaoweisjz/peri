@@ -198,7 +198,7 @@ fn parse_table_with_wrap() {
 fn parse_table_cjk_first_column_too_narrow() {
     // 4 列: CJK 列 + 长路径列 + 2 短列
     let md = "| 中文列 | 文件路径 | 状态 | 大小 |\n| --- | --- | --- | --- |\n| 这是一个需要测试的中文内容 | /very/long/path/that/takes/all/the/width/proportionally/and/squeezes/other/columns | OK | 1K |";
-    let text = parse_markdown(&md, &default_theme(), 50);
+    let text = parse_markdown(md, &default_theme(), 50);
     assert!(text.lines.len() >= 3, "Table should render");
 
     // 计算第一列的视觉宽度（取数据行中第一列的行宽）

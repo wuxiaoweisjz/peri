@@ -305,7 +305,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Resul
             .services
             .peri_config
             .as_ref()
-            .and_then(|cfg| peri_tui::app::LlmProvider::from_config(cfg))
+            .and_then(peri_tui::app::LlmProvider::from_config)
             .or_else(peri_tui::app::LlmProvider::from_env);
 
         if let Some(provider) = provider {

@@ -281,7 +281,7 @@ fn inject_option_descriptions(params: &mut serde_json::Value, requests: &[Questi
         };
         // For array type, options are nested under "items"
         let container = if key == "anyOf" {
-            prop.get_mut("items").map(|i| i.as_object_mut()).flatten()
+            prop.get_mut("items").and_then(|i| i.as_object_mut())
         } else {
             prop.as_object_mut()
         };

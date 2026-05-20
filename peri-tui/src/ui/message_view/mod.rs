@@ -700,7 +700,6 @@ impl MessageViewModel {
 ///
 /// `format_subagent_result()` 输出格式：`[Sub-agent executed N tool calls: ...]`
 /// 或中文版 `[子 agent 执行了 N 个工具调用: ...]`。
-
 #[cfg(test)]
 #[path = "message_view_test.rs"]
 mod tests;

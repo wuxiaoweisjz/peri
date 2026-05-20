@@ -13,6 +13,9 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use peri_agent::agent::events::AgentEventHandler;
+
+/// 子 Agent 事件 handler 工厂类型
+pub type ChildHandlerFactory = Arc<dyn Fn(String) -> Arc<dyn AgentEventHandler> + Send + Sync>;
 use peri_agent::agent::state::AgentState;
 use peri_agent::agent::{AgentCancellationToken, ReActAgent};
 use peri_agent::interaction::UserInteractionBroker;
@@ -47,8 +50,7 @@ pub struct AcpAgentConfig {
     pub tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
     pub shared_tools: Arc<RwLock<HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>>,
     /// 子 Agent 专用事件 handler factory（由调用方提供，取代 TUI 的 child_event_tx）
-    pub child_handler_factory:
-        Option<Arc<dyn Fn(String) -> Arc<dyn AgentEventHandler> + Send + Sync>>,
+    pub child_handler_factory: Option<ChildHandlerFactory>,
     /// LSP 服务器配置（由调用方从 settings.json + 插件配置组装）
     pub lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
 }

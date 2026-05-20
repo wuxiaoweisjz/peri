@@ -870,23 +870,20 @@ impl App {
                 .acp_notification_rx
                 .as_mut()
                 .map(|rx| rx.try_recv());
-            match acp_result {
-                Some(Ok(notif)) => {
-                    let (ev_updated, should_break, should_return) =
-                        self.handle_acp_notification(notif);
-                    if ev_updated {
-                        updated = true;
-                    }
-                    if should_return {
-                        return true;
-                    }
-                    if should_break {
-                        break;
-                    }
-                    continue;
+            if let Some(Ok(notif)) = acp_result {
+                let (ev_updated, should_break, should_return) = self.handle_acp_notification(notif);
+                if ev_updated {
+                    updated = true;
                 }
-                Some(Err(_)) | None => {} // channel empty or not available, fall through to legacy
+                if should_return {
+                    return true;
+                }
+                if should_break {
+                    break;
+                }
+                continue;
             }
+            // channel empty or not available, fall through to legacy
 
             // Try legacy agent_rx channel (backward compat)
             let result = self.session_mgr.sessions[self.session_mgr.active]

@@ -46,6 +46,12 @@ pub struct StdioTransport {
     writer: Arc<Mutex<BufWriter<tokio::io::Stdout>>>,
 }
 
+impl Default for StdioTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StdioTransport {
     /// Create a new stdio transport. Must be called within a tokio runtime.
     pub fn new() -> Self {
