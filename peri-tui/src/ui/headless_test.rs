@@ -2816,12 +2816,29 @@ async fn test_welcome_shows_model_info() {
 async fn test_background_task_notification() {
     let (mut app, handle) = App::new_headless(120, 30).await;
 
+    // 模拟 submit_message：设置 round_start_vm_idx 并推送用户消息
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .round_start_vm_idx = app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .len();
+    let user_vm = MessageViewModel::user("test query".into());
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .push(user_vm);
+    app.render_rebuild();
+
     // 先设置后台任务计数
     app.session_mgr.sessions[app.session_mgr.active].background_task_count = 1;
 
     let notified = handle.render_notify.notified();
 
-    // Done 事件先处理（模拟 agent 完成）
+    // 推送 StateSnapshot + Done 以设置正确的 pipeline 状态
+    app.push_agent_event(AgentEvent::StateSnapshot(vec![
+        peri_agent::messages::BaseMessage::human("test query"),
+    ]));
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
 
@@ -2864,10 +2881,27 @@ async fn test_background_task_notification() {
 async fn test_background_task_status_bar() {
     let (mut app, mut handle) = App::new_headless(120, 30).await;
 
+    // 模拟 submit_message：设置 round_start_vm_idx 并推送用户消息
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .round_start_vm_idx = app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .len();
+    let user_vm = MessageViewModel::user("test".into());
+    app.session_mgr.sessions[app.session_mgr.active]
+        .messages
+        .view_messages
+        .push(user_vm);
+    app.render_rebuild();
+
     app.session_mgr.sessions[app.session_mgr.active].background_task_count = 2;
 
+    // Trigger a render via StateSnapshot + Done
     let notified = handle.render_notify.notified();
-    // Trigger a render
+    app.push_agent_event(AgentEvent::StateSnapshot(vec![
+        peri_agent::messages::BaseMessage::human("test"),
+    ]));
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
     notified.await;

@@ -287,8 +287,8 @@ async fn test_cancel_at_i_gt_0_flushes_modified_calls() {
             };
             // guard 已在块内释放
             if should_hang {
-                // 后续工具挂起（等待取消），较短超时避免测试卡住
-                tokio::time::sleep(Duration::from_secs(10)).await;
+                // 后续工具挂起（等待取消），200ms 足够让 cancel (100ms) 触发
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
             Ok(_tool_call.clone())
         }
