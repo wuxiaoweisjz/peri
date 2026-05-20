@@ -24,10 +24,12 @@ use peri_middlewares::prelude::*;
 use crate::app::agent::LlmProvider;
 use crate::config::PeriConfig;
 
+mod compact;
 mod notify;
 mod prompt;
 mod requests;
 
+pub(crate) use compact::execute_compact;
 pub(crate) use notify::{extract_session_id, handle_notification, send_session_info_update};
 pub(crate) use prompt::execute_prompt;
 pub(crate) use requests::handle_request;
@@ -120,6 +122,31 @@ pub async fn run_acp_server(
                         let _ = transport.send_response(id, result).await;
                         if !prompt_session_id.is_empty() {
                             send_session_info_update(transport.as_ref(), &prompt_session_id).await;
+                        }
+                    });
+                } else if method == "session/compact" {
+                    // Spawn compact execution so server loop stays responsive
+                    let compact_session_id = params
+                        .get("sessionId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let sessions = sessions.clone();
+                    let transport = Arc::clone(&transport);
+                    let provider = cfg.provider.clone();
+                    let peri_config = cfg.peri_config.clone();
+                    tokio::spawn(async move {
+                        let result = execute_compact(
+                            &compact_session_id,
+                            &sessions,
+                            &provider,
+                            &peri_config,
+                            &transport,
+                        )
+                        .await;
+                        let _ = transport.send_response(id, result).await;
+                        if !compact_session_id.is_empty() {
+                            send_session_info_update(transport.as_ref(), &compact_session_id).await;
                         }
                     });
                 } else {

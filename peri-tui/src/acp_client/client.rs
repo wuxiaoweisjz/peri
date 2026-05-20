@@ -298,6 +298,22 @@ impl AcpTuiClient {
         Ok(())
     }
 
+    /// Trigger manual full compact on the current session.
+    pub async fn compact(&self) -> Result<(), String> {
+        let session_id = self
+            .current_session_id
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("no active session")?;
+        let params = json!({ "sessionId": session_id });
+        self.transport
+            .send_request("session/compact", params)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     /// Cancel the currently running prompt.
     pub async fn cancel(&self) -> Result<(), String> {
         let session_id = self

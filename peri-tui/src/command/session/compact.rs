@@ -23,6 +23,15 @@ impl Command for CompactCommand {
                 ));
             return;
         }
-        app.submit_message("/compact".to_string());
+        // 通过 ACP compact 通道触发手动压缩，而非将 /compact 当作普通消息发送
+        if let Some(ref acp_client) = app.acp_client {
+            let client = acp_client.clone();
+            tokio::spawn(async move {
+                match client.compact().await {
+                    Ok(()) => tracing::info!("Manual compact triggered via ACP"),
+                    Err(e) => tracing::error!(error = %e, "Manual compact failed"),
+                }
+            });
+        }
     }
 }
