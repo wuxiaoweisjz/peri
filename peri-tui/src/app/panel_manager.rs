@@ -465,6 +465,25 @@ impl PanelManager {
             PanelState::Plugin(p) => p.desired_height(screen_height, screen_width),
         })
     }
+
+    /// 分发绝对滚动偏移到当前激活面板（滚动条拖拽）
+    pub fn dispatch_set_scroll_offset(&mut self, offset: u16) {
+        use super::panel_component::PanelComponent;
+        let Some(state) = self.active.as_mut() else { return };
+        match state {
+            PanelState::Model(p) => p.set_scroll_offset(offset),
+            PanelState::Agent(p) => p.set_scroll_offset(offset),
+            PanelState::Hooks(p) => p.set_scroll_offset(offset),
+            PanelState::Status(p) => p.set_scroll_offset(offset),
+            PanelState::Memory(p) => p.set_scroll_offset(offset),
+            PanelState::Login(p) => p.set_scroll_offset(offset),
+            PanelState::Config(p) => p.set_scroll_offset(offset),
+            PanelState::ThreadBrowser(p) => p.set_scroll_offset(offset),
+            PanelState::Mcp(p) => p.set_scroll_offset(offset),
+            PanelState::Cron(p) => p.set_scroll_offset(offset),
+            PanelState::Plugin(p) => p.set_scroll_offset(offset),
+        }
+    }
 }
 
 impl Default for PanelManager {
