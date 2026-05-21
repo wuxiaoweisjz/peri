@@ -172,9 +172,22 @@ impl PluginPanel {
                 );
             }
             PluginPanelView::Marketplaces => {
-                // marketplace_list items 在 open_plugin_panel 中设置
+                self.sync_marketplace_list_items();
             }
         }
+    }
+
+    /// 将 marketplace_entries 同步到 marketplace_list（含虚拟 Add 占位项）
+    pub(crate) fn sync_marketplace_list_items(&mut self) {
+        use types::MarketplaceListItem;
+        let mut items: Vec<MarketplaceListItem> = vec![MarketplaceListItem::AddPlaceholder];
+        items.extend(
+            self.marketplace_entries
+                .iter()
+                .cloned()
+                .map(MarketplaceListItem::Entry),
+        );
+        self.marketplace_list.set_items(items);
     }
 }
 
@@ -710,9 +723,7 @@ impl App {
                     let name = entry.name.clone();
                     // 从列表中移除
                     panel.marketplace_entries.remove(idx);
-                    panel
-                        .marketplace_list
-                        .set_items(panel.marketplace_entries.clone());
+                    panel.sync_marketplace_list_items();
                     return Some(name);
                 }
             }

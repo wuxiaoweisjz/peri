@@ -78,8 +78,7 @@ impl PluginPanel {
                     if let Some(entry) = self.marketplace_entries.get(idx) {
                         let name = entry.name.clone();
                         self.marketplace_entries.remove(idx);
-                        self.marketplace_list
-                            .set_items(self.marketplace_entries.clone());
+                        self.sync_marketplace_list_items();
 
                         if let Err(e) = self.persist_marketplace_delete(&name) {
                             ctx.session_mgr.sessions[ctx.session_mgr.active]

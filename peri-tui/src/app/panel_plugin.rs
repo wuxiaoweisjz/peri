@@ -319,6 +319,7 @@ impl App {
         let mut panel = crate::app::plugin_panel::PluginPanel::new(entries);
         panel.discover_plugins = discover_plugins;
         panel.marketplace_entries = marketplace_view_entries;
+        panel.sync_marketplace_list_items();
 
         self.open_panel(PanelState::Plugin(Box::new(panel)));
 

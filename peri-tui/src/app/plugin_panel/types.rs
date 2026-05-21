@@ -64,6 +64,18 @@ pub enum MarketplaceViewStatus {
     Failed,
 }
 
+/// Marketplace 列表项（用于 PanelList 游标管理）
+///
+/// 第一个项为虚拟的 "Add Marketplace"，其余项对应实际的 marketplace 条目。
+/// 这样 PanelList cursor 范围 (0..=N) 与渲染器期望 (0=Add, 1..=N=entries) 对齐。
+#[derive(Debug, Clone)]
+pub enum MarketplaceListItem {
+    /// 虚拟的 "Add Marketplace" 入口
+    AddPlaceholder,
+    /// 实际的 marketplace 条目
+    Entry(MarketplaceViewEntry),
+}
+
 /// 插件条目类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PluginItemType {
@@ -191,7 +203,7 @@ pub struct PluginPanel {
 
     // --- Marketplaces 视图状态 ---
     pub marketplace_entries: Vec<MarketplaceViewEntry>,
-    pub marketplace_list: PanelList<MarketplaceViewEntry>,
+    pub marketplace_list: PanelList<MarketplaceListItem>,
     pub marketplace_confirm_delete: Option<usize>,
     pub marketplace_updating: HashSet<String>,
     /// 添加 marketplace 输入框
