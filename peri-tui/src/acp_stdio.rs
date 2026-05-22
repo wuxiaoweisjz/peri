@@ -346,6 +346,9 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
             agent_client_protocol::on_receive_request!(),
         )
         // ── session/prompt ──
+        // Execution is spawned into a background task to avoid blocking the
+        // event loop.  This is required so that session/cancel (and
+        // {"type":"cancel"}) can interrupt an in-progress agent execution.
         .on_receive_request(
             {
                 let ctx = ctx_clone.clone();
@@ -359,6 +362,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         }
                     }).collect::<Vec<&str>>().join("");
 
+                    // --- capture session-scoped data under the read lock ---
                     let (agent_cwd, history, is_empty_history, thread_id, frozen) = {
                         let sessions = ctx.sessions.read();
                         match sessions.get(&sid) {
@@ -399,63 +403,83 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         }
                     }
 
-                    let broker: Arc<dyn peri_agent::interaction::UserInteractionBroker> =
-                        Arc::new(StdioBroker::new());
+                    // --- capture everything the background task needs ---
+                    let ctx_for_task = Arc::clone(&ctx);
+                    let cx_for_task = cx.clone();
+                    let session_id = req.session_id.clone();
 
-                    let event_sink = Arc::new(StdioEventSink::new(cx, req.session_id.clone()));
-                    let event_sink_for_notif = Arc::clone(&event_sink);
-                    let provider_snapshot = ctx.provider.read().clone();
-                    let peri_config_snapshot = Arc::new(ctx.peri_config.read().clone());
+                    // Spawn the heavy work to keep the event loop responsive.
+                    // responder is moved into the task; the response is sent
+                    // when execution completes (or is cancelled).
+                    tokio::spawn(async move {
+                        let broker: Arc<dyn peri_agent::interaction::UserInteractionBroker> =
+                            Arc::new(StdioBroker::new());
 
-                    let result = executor::execute_prompt(
-                        &provider_snapshot,
-                        peri_config_snapshot,
-                        &agent_cwd,
-                        content,
-                        frozen,
-                        history,
-                        is_empty_history,
-                        ctx.permission_mode.clone(),
-                        event_sink,
-                        cancel,
-                        broker,
-                        ctx.plugin_skill_dirs.clone(),
-                        ctx.plugin_agent_dirs.clone(),
-                        ctx.hook_groups.clone(),
-                        Some(ctx.cron_scheduler.clone()),
-                        sid.clone(),
-                        ctx.mcp_pool.clone(),
-                        ctx.tool_search_index.clone(),
-                        ctx.shared_tools.clone(),
-                        ctx.plugin_lsp_servers.clone(),
-                    )
-                    .await;
+                        let event_sink = Arc::new(StdioEventSink::new(
+                            cx_for_task.clone(),
+                            session_id.clone(),
+                        ));
+                        let event_sink_for_notif = Arc::clone(&event_sink);
 
-                    // Persist new messages to ThreadStore and update in-memory state.
-                    if result.ok && history_len < result.messages.len() {
-                        let new_msgs = &result.messages[history_len..];
-                        if let Err(e) = ctx.thread_store.append_messages(&thread_id, new_msgs).await {
-                            tracing::warn!(error = %e, "Failed to persist messages to ThreadStore");
+                        // Snapshot provider / config (release guards before await).
+                        let provider_snapshot = ctx_for_task.provider.read().clone();
+                        let peri_config_snapshot = Arc::new(ctx_for_task.peri_config.read().clone());
+
+                        let result = executor::execute_prompt(
+                            &provider_snapshot,
+                            peri_config_snapshot,
+                            &agent_cwd,
+                            content,
+                            frozen,
+                            history,
+                            is_empty_history,
+                            ctx_for_task.permission_mode.clone(),
+                            event_sink,
+                            cancel,
+                            broker,
+                            ctx_for_task.plugin_skill_dirs.clone(),
+                            ctx_for_task.plugin_agent_dirs.clone(),
+                            ctx_for_task.hook_groups.clone(),
+                            Some(ctx_for_task.cron_scheduler.clone()),
+                            sid.clone(),
+                            ctx_for_task.mcp_pool.clone(),
+                            ctx_for_task.tool_search_index.clone(),
+                            ctx_for_task.shared_tools.clone(),
+                            ctx_for_task.plugin_lsp_servers.clone(),
+                        )
+                        .await;
+
+                        // Persist new messages to ThreadStore.
+                        if result.ok && history_len < result.messages.len() {
+                            let new_msgs = &result.messages[history_len..];
+                            if let Err(e) = ctx_for_task.thread_store.append_messages(&thread_id, new_msgs).await {
+                                tracing::warn!(error = %e, "Failed to persist messages to ThreadStore");
+                            }
                         }
-                    }
-                    {
-                        let mut sessions = ctx.sessions.write();
-                        if let Some(s) = sessions.get_mut(&sid) {
-                            s.history = result.messages;
-                            s.cancel_token = None;
+                        // Update in-memory state.
+                        {
+                            let mut sessions = ctx_for_task.sessions.write();
+                            if let Some(s) = sessions.get_mut(&sid) {
+                                s.history = result.messages;
+                                s.cancel_token = None;
+                            }
                         }
-                    }
 
-                    let acp_stop_reason = match result.stop_reason {
-                        executor::PromptStopReason::Cancelled => StopReason::Cancelled,
-                        executor::PromptStopReason::MaxTurnRequests => StopReason::MaxTurnRequests,
-                        executor::PromptStopReason::EndTurn => StopReason::EndTurn,
-                    };
-                    let _ = responder.respond(PromptResponse::new(acp_stop_reason));
-                    // Send SessionInfoUpdate after prompt completes
-                    let info = SessionInfoUpdate::new()
-                        .updated_at(chrono::Utc::now().to_rfc3339());
-                    event_sink_for_notif.send_update(SessionUpdate::SessionInfoUpdate(info));
+                        let acp_stop_reason = match result.stop_reason {
+                            executor::PromptStopReason::Cancelled => StopReason::Cancelled,
+                            executor::PromptStopReason::MaxTurnRequests => StopReason::MaxTurnRequests,
+                            executor::PromptStopReason::EndTurn => StopReason::EndTurn,
+                        };
+                        let _ = responder.respond(PromptResponse::new(acp_stop_reason));
+
+                        // Send SessionInfoUpdate after prompt completes.
+                        let info = SessionInfoUpdate::new()
+                            .updated_at(chrono::Utc::now().to_rfc3339());
+                        event_sink_for_notif.send_update(SessionUpdate::SessionInfoUpdate(info));
+                    });
+
+                    // Return immediately — the event loop stays free to
+                    // process session/cancel and {"type":"cancel"}.
                     Ok(())
                 }
             },
