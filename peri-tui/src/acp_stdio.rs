@@ -85,48 +85,6 @@ impl peri_agent::interaction::UserInteractionBroker for StdioBroker {
 
 // ─── run_acp_stdio ───────────────────────────────────────────────────────
 
-/// Build the list of available slash commands for ACP stdio clients.
-fn build_stdio_available_commands(
-    skills: &[peri_middlewares::skills::SkillMetadata],
-) -> Vec<agent_client_protocol::schema::AvailableCommand> {
-    use agent_client_protocol::schema::AvailableCommand;
-    let mut commands = vec![
-        AvailableCommand::new("help", "Show available commands and their descriptions"),
-        AvailableCommand::new("clear", "Clear the current conversation"),
-        AvailableCommand::new(
-            "compact",
-            "Compress the conversation history to save context",
-        ),
-        AvailableCommand::new("context", "Display context usage / token statistics"),
-        AvailableCommand::new("cost", "Show token usage and estimated cost"),
-        AvailableCommand::new("model", "Switch the current LLM model"),
-        AvailableCommand::new("mode", "Switch the current permission mode"),
-        AvailableCommand::new("effort", "Configure LLM reasoning/thinking effort"),
-        AvailableCommand::new("loop", "Control agent iteration loop"),
-        AvailableCommand::new("history", "View and resume previous conversations"),
-        AvailableCommand::new("doctor", "Diagnose configuration and connection issues"),
-        AvailableCommand::new("mcp", "Manage MCP (Model Context Protocol) servers"),
-        AvailableCommand::new("hooks", "Manage Claude Code hooks"),
-        AvailableCommand::new("plugin", "Manage installed plugins"),
-        AvailableCommand::new("cron", "Manage scheduled/cron tasks"),
-        AvailableCommand::new("agents", "Manage sub-agent definitions"),
-        AvailableCommand::new("memory", "Manage persistent memory entries"),
-        AvailableCommand::new("login", "Configure authentication"),
-        AvailableCommand::new("split", "Manage split session layouts"),
-        AvailableCommand::new("rename", "Rename the current session"),
-        AvailableCommand::new("lang", "Switch display language / locale"),
-        AvailableCommand::new("exit", "Exit the application"),
-    ];
-    // Append discovered skills as available commands
-    for skill in skills {
-        commands.push(AvailableCommand::new(
-            format!("skill:{}", skill.name),
-            skill.description.clone(),
-        ));
-    }
-    commands
-}
-
 pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
     let _telemetry = peri_agent::telemetry::init_tracing("peri-acp");
 
@@ -238,12 +196,13 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
     });
 
     use agent_client_protocol::schema::{
-        AvailableCommandsUpdate, CancelNotification, ConfigOptionUpdate, InitializeRequest,
-        ListSessionsRequest, ListSessionsResponse, NewSessionRequest, NewSessionResponse,
-        PromptRequest, PromptResponse, SessionId, SessionInfoUpdate, SessionNotification,
-        SessionUpdate, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
-        SetSessionModeRequest, SetSessionModeResponse, SetSessionModelRequest,
-        SetSessionModelResponse, StopReason,
+        AvailableCommandsUpdate, CancelNotification, CloseSessionRequest, CloseSessionResponse,
+        ConfigOptionUpdate, ForkSessionRequest, ForkSessionResponse, InitializeRequest,
+        ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
+        NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, ResumeSessionRequest,
+        ResumeSessionResponse, SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate,
+        SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+        SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse, StopReason,
     };
     use agent_client_protocol::{Agent, Client, ConnectionTo};
     use agent_client_protocol_tokio::Stdio;
@@ -351,7 +310,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             .config_options(config_options),
                     );
                     // Push AvailableCommandsUpdate notification
-                    let cmds = build_stdio_available_commands(&skills);
+                    let cmds = dispatch::build_available_commands(&skills);
                     let ac_notif = SessionNotification::new(
                         SessionId::new(&*sid),
                         SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(cmds)),
@@ -628,6 +587,206 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 }
             },
             agent_client_protocol::on_receive_notification!(),
+        )
+        // ── session/close ──
+        .on_receive_request(
+            {
+                let ctx = ctx_clone.clone();
+                async move |req: CloseSessionRequest, responder, _cx: ConnectionTo<Client>| {
+                    let sid = req.session_id.0.to_string();
+                    let mut sessions = ctx.sessions.write();
+                    if let Some(s) = sessions.remove(&sid) {
+                        if let Some(ref token) = s.cancel_token {
+                            token.cancel();
+                        }
+                        tracing::info!(session_id = %sid, "Session closed");
+                    }
+                    let _ = responder.respond(CloseSessionResponse::new());
+                    Ok(())
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        // ── session/resume ──
+        .on_receive_request(
+            {
+                let ctx = ctx_clone.clone();
+                async move |req: ResumeSessionRequest, responder, _cx: ConnectionTo<Client>| {
+                    let sid = req.session_id.0.to_string();
+                    let cwd = req.cwd.to_string_lossy().to_string();
+                    let mut sessions = ctx.sessions.write();
+                    if !sessions.contains_key(&sid) {
+                        sessions.insert(
+                            sid.clone(),
+                            SessionInfo {
+                                session_id: sid.clone(),
+                                thread_id: sid.clone(),
+                                cwd,
+                                history: Vec::new(),
+                                cancel_token: None,
+                                frozen_system_prompt: None,
+                                frozen_claude_md: None,
+                                frozen_claude_local_md: None,
+                                frozen_skill_summary: None,
+                                frozen_date: None,
+                            },
+                        );
+                        tracing::info!(session_id = %sid, "Session resumed (new)");
+                    } else {
+                        tracing::info!(session_id = %sid, "Session resumed (existing)");
+                    }
+                    let _ = responder.respond(ResumeSessionResponse::new());
+                    Ok(())
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        // ── session/load ──
+        .on_receive_request(
+            {
+                let ctx = ctx_clone.clone();
+                async move |req: LoadSessionRequest, responder, cx: ConnectionTo<Client>| {
+                    let sid = req.session_id.0.to_string();
+                    let cwd = req.cwd.to_string_lossy().to_string();
+                    let cwd_for_skills = cwd.clone();
+
+                    // Load history from ThreadStore via dispatch function
+                    let history = dispatch::load_session_messages(
+                        ctx.thread_store.as_ref(),
+                        &sid,
+                    ).await;
+
+                    // Insert into sessions if not already present
+                    {
+                        let mut sessions = ctx.sessions.write();
+                        if let Some(s) = sessions.get_mut(&sid) {
+                            if s.history.is_empty() {
+                                s.history = history;
+                            }
+                        } else {
+                            sessions.insert(
+                                sid.clone(),
+                                SessionInfo {
+                                    session_id: sid.clone(),
+                                    thread_id: sid.clone(),
+                                    cwd,
+                                    history,
+                                    cancel_token: None,
+                                    frozen_system_prompt: None,
+                                    frozen_claude_md: None,
+                                    frozen_claude_local_md: None,
+                                    frozen_skill_summary: None,
+                                    frozen_date: None,
+                                },
+                            );
+                        }
+                    }
+
+                    let modes = build_mode_state(&ctx.permission_mode);
+                    let models = {
+                        let p = ctx.provider.read();
+                        let c = ctx.peri_config.read();
+                        build_model_state(&p, &c)
+                    };
+                    let config_options = {
+                        let c = ctx.peri_config.read();
+                        let p = ctx.provider.read();
+                        build_config_options(&c, &p, ctx.permission_mode.load())
+                    };
+                    let resp = LoadSessionResponse::new()
+                        .modes(modes)
+                        .models(models)
+                        .config_options(config_options);
+                    let _ = responder.respond(resp);
+
+                    // Scan skills for AvailableCommands notification
+                    let skill_dirs = peri_middlewares::SkillsMiddleware::resolve_dirs_static(
+                        &cwd_for_skills,
+                        &ctx.plugin_skill_dirs,
+                    );
+                    let skills = peri_middlewares::skills::list_skills(&skill_dirs);
+                    let cmds = dispatch::build_available_commands(&skills);
+                    let ac_notif = SessionNotification::new(
+                        SessionId::new(&*sid),
+                        SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(cmds)),
+                    );
+                    let _ = cx.send_notification(ac_notif);
+                    Ok(())
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        // ── session/fork ──
+        .on_receive_request(
+            {
+                let ctx = ctx_clone.clone();
+                async move |req: ForkSessionRequest, responder, _cx: ConnectionTo<Client>| {
+                    let source_id = req.session_id.0.to_string();
+                    let cwd_str = req.cwd.to_string_lossy().to_string();
+
+                    // Get source history
+                    let source_history = {
+                        let sessions = ctx.sessions.read();
+                        sessions.get(&source_id)
+                            .map(|s| s.history.clone())
+                            .ok_or_else(|| String::from("source session not found"))
+                    };
+                    let source_history = match source_history {
+                        Ok(h) => h,
+                        Err(e) => {
+                            tracing::warn!(session_id = %source_id, error = %e, "session/fork: source session not found");
+                            let _ = responder.respond(ForkSessionResponse::new(SessionId::new("error")));
+                            return Ok(());
+                        }
+                    };
+
+                    if source_history.is_empty() {
+                        let _ = responder.respond(ForkSessionResponse::new(SessionId::new("error")));
+                        return Ok(());
+                    }
+
+                    // Fork via dispatch function
+                    let (new_thread_id, copied_history) = match dispatch::fork_session(
+                        ctx.thread_store.as_ref(),
+                        &source_id,
+                        &source_history,
+                        &cwd_str,
+                    ).await {
+                        Ok((id, msgs)) => (id, msgs),
+                        Err(e) => {
+                            tracing::error!(error = %e, "session/fork: fork failed");
+                            let _ = responder.respond(ForkSessionResponse::new(SessionId::new("error")));
+                            return Ok(());
+                        }
+                    };
+
+                    // Insert new session
+                    let new_session_id = new_thread_id.clone();
+                    {
+                        let mut sessions = ctx.sessions.write();
+                        sessions.insert(
+                            new_session_id.clone(),
+                            SessionInfo {
+                                session_id: new_session_id.clone(),
+                                thread_id: new_thread_id.clone(),
+                                cwd: cwd_str,
+                                history: copied_history,
+                                cancel_token: None,
+                                frozen_system_prompt: None,
+                                frozen_claude_md: None,
+                                frozen_claude_local_md: None,
+                                frozen_skill_summary: None,
+                                frozen_date: None,
+                            },
+                        );
+                    }
+
+                    let resp = ForkSessionResponse::new(SessionId::new(new_session_id));
+                    let _ = responder.respond(resp);
+                    Ok(())
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
         )
         .connect_to(Stdio::new())
         .await

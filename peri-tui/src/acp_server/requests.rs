@@ -8,7 +8,7 @@ use tracing::{debug, info};
 
 use peri_acp::dispatch;
 use peri_acp::transport::types::AcpError;
-use peri_agent::thread::{ThreadId, ThreadMeta};
+use peri_agent::thread::ThreadMeta;
 
 use agent_client_protocol::schema::{
     CloseSessionResponse, ForkSessionResponse, ListSessionsResponse, LoadSessionResponse,
@@ -238,17 +238,8 @@ pub(crate) async fn handle_request(
             let cwd = params.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
 
             // Load history from ThreadStore
-            let history = match cfg
-                .thread_store
-                .load_messages(&ThreadId::from(req_session_id.to_string()))
-                .await
-            {
-                Ok(msgs) => msgs,
-                Err(e) => {
-                    tracing::warn!(session_id = %req_session_id, error = %e, "session/load: thread not found, creating empty session");
-                    Vec::new()
-                }
-            };
+            let history =
+                dispatch::load_session_messages(cfg.thread_store.as_ref(), req_session_id).await;
 
             // Insert into sessions if not already present
             if let Some(state) = sessions.get_mut(req_session_id) {
@@ -400,22 +391,10 @@ pub(crate) async fn handle_request(
                     AcpError::new(-32602, format!("source session not found: {source_id}"))
                 })?;
 
-            let meta = ThreadMeta::new(cwd);
-            let new_thread_id = cfg
-                .thread_store
-                .create_thread(meta)
-                .await
-                .map_err(|e| AcpError::new(-32603, format!("Thread creation failed: {e}")))?;
-
-            if !source_history.is_empty() {
-                if let Err(e) = cfg
-                    .thread_store
-                    .append_messages(&new_thread_id, &source_history)
+            let (new_thread_id, copied_history) =
+                dispatch::fork_session(cfg.thread_store.as_ref(), source_id, &source_history, cwd)
                     .await
-                {
-                    tracing::warn!(error = %e, "session/fork: failed to copy messages to new thread");
-                }
-            }
+                    .map_err(|e| AcpError::new(-32603, e))?;
 
             let new_session_id = new_thread_id.clone();
             sessions.insert(
@@ -424,7 +403,7 @@ pub(crate) async fn handle_request(
                     session_id: new_session_id.clone(),
                     thread_id: new_thread_id.clone(),
                     cwd: cwd.to_string(),
-                    history: source_history,
+                    history: copied_history,
                     cancel_token: None,
                     frozen_system_prompt: None,
                     frozen_claude_md: None,

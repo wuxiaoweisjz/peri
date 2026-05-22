@@ -5,8 +5,14 @@
 //! functions, keeping only JSON-RPC framing and session-state management
 //! in their respective transport layers.
 
+pub mod commands;
 pub mod init;
 pub mod list_sessions;
+pub mod session_fork;
+pub mod session_load;
 
+pub use commands::build_available_commands;
 pub use init::build_initialize_response;
 pub use list_sessions::list_sessions_as_info;
+pub use session_fork::fork_session;
+pub use session_load::load_session_messages;

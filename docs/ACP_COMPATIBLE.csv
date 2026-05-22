@@ -1,0 +1,19 @@
+method,category,protocol_status,TUI_transport,stdio_transport,declared_capability,notes
+initialize,lifecycle,stable,✅,✅,N/A,基础握手 + 版本协商
+session/new,lifecycle,stable,✅,✅,N/A,创建会话并冻结数据
+session/prompt,core,stable,✅,✅,N/A,主 ReAct 循环入口
+session/set_model,config,stable,✅,✅,N/A,切换模型
+session/set_mode,config,stable,✅,✅,N/A,切换权限模式
+session/set_config_option,config,stable,✅,✅,N/A,统一配置选项
+session/set_thinking,config,stable,✅,NA,N/A,推理模式配置（仅 TUI 路径注册）
+session/cancel,lifecycle,stable,✅,✅,N/A,取消当前请求（通知）
+$/cancel_request,lifecycle,stable,✅,NA,N/A,TUI 路径通过 handle_notification 处理
+session/load,lifecycle,stable,✅,✅,loadSession=true,2026-05-21 新增 stdio handler（dispatch::load_session_messages）
+session/list,listing,stable,✅,✅,sessionCapabilities.list,2026-05-21 新增 stdio handler
+session/close,lifecycle,stable,✅,✅,sessionCapabilities.close,2026-05-21 新增 stdio handler
+session/resume,lifecycle,stable (2026-04-22),✅,✅,sessionCapabilities.resume,2026-05-21 新增 stdio handler
+session/clear,lifecycle,stable,✅,NA,无,TUI 路径专有（清除会话消息）
+session/compact,lifecycle,stable,✅,NA,无,手动压缩（TUI 路径 tokio::spawn）
+session/fork,lifecycle,draft,✅,✅,sessionCapabilities.fork,2026-05-21 新增 stdio handler（dispatch::fork_session）
+session/delete,lifecycle,draft,NA,NA,无,未实现
+mcp/*,tool,draft,✅,✅,mcpCapabilities,通过 McpMiddleware 实现（能力未在 initialize 声明）
