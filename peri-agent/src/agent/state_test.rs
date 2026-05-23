@@ -73,3 +73,41 @@
         let mut restored: AgentState = serde_json::from_str(&json).unwrap();
         assert!(restored.drain_recall().is_empty(), "反序列化后 recall 应为空");
     }
+
+    #[test]
+    fn test_recall_injects_as_multiblock() {
+        use crate::messages::{ContentBlock, MessageContent};
+
+        let mut state = AgentState::new("/workspace");
+        state.push_recall("[MCP] Sentry connected".into());
+        state.push_recall("[MCP] Slack connected".into());
+
+        let recalls = state.drain_recall();
+        let user_text = "帮我修一下 bug".to_string();
+
+        let content = if recalls.is_empty() {
+            MessageContent::text(user_text)
+        } else {
+            let reminder = format!(
+                "<system-reminder>\n{}\n</system-reminder>",
+                recalls.join("\n")
+            );
+            MessageContent::blocks(vec![
+                ContentBlock::text(user_text),
+                ContentBlock::text(reminder),
+            ])
+        };
+
+        let msg = BaseMessage::human(content);
+        let blocks = msg.content_blocks();
+        assert_eq!(blocks.len(), 2);
+
+        let texts: Vec<&str> = blocks.iter().filter_map(|b| b.as_text()).collect();
+        assert_eq!(texts[0], "帮我修一下 bug");
+        assert!(texts[1].contains("<system-reminder>"));
+        assert!(texts[1].contains("Sentry connected"));
+        assert!(texts[1].contains("Slack connected"));
+
+        // drain 是破坏性操作，buffer 已清空
+        assert!(state.drain_recall().is_empty());
+    }
