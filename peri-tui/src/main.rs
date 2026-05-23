@@ -30,6 +30,7 @@ mod acp_stdio;
 mod cli_args;
 mod cli_plugin;
 mod cli_print;
+mod jemalloc_config;
 
 // ─── CLI 定义 ──────────────────────────────────────────────────────────────
 
@@ -250,6 +251,10 @@ fn inject_settings_override(source: &str) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
+    // Configure jemalloc before any significant allocation.
+    // Must precede tokio runtime creation and the first LLM call.
+    peri_tui::jemalloc_config::configure_jemalloc();
+
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();
 
