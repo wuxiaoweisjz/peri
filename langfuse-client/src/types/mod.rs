@@ -90,18 +90,31 @@ pub type IngestionUsage = HashMap<String, serde_json::Value>;
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct TraceBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub release: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub public: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
 }
 
@@ -110,23 +123,40 @@ pub struct TraceBody {
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct ObservationBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
     pub r#type: ObservationType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_observation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<HashMap<String, serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<ObservationLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
 }
 
@@ -135,19 +165,33 @@ pub struct ObservationBody {
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct SpanBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<ObservationLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_observation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
 }
 
@@ -157,28 +201,50 @@ pub struct SpanBody {
 #[serde(deny_unknown_fields)]
 pub struct GenerationBody {
     // From OptionalObservationBody
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub end_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<ObservationLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_observation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
     // Generation-specific fields
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<HashMap<String, serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<IngestionUsage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_details: Option<UsageDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_details: Option<CostDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
 }
 
@@ -187,17 +253,29 @@ pub struct GenerationBody {
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct EventBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<ObservationLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_observation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
 }
 
@@ -208,16 +286,27 @@ pub struct EventBody {
 pub struct ScoreBody {
     pub name: String,
     pub value: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub observation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data_type: Option<ScoreDataType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub config_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub queue_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_run_id: Option<String>,
 }
 

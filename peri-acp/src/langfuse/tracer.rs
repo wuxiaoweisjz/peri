@@ -170,7 +170,13 @@ impl LangfuseTracer {
     pub fn on_trace_start(&mut self, input: &str) {
         let batcher = &self.session.batcher;
         let start_time = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        tracing::info!(
+            trace_id = %self.trace_id,
+            agent_obs_id = %self.agent_observation_id,
+            "langfuse: on_trace_start called"
+        );
 
+        // 创建 agent-run 根 Observation（OTLP 通过 trace_id 隐式创建 Trace，无需 TraceCreate）
         let body = ObservationBody {
             id: Some(self.agent_observation_id.clone()),
             trace_id: Some(self.trace_id.clone()),

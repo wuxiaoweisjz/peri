@@ -112,14 +112,11 @@ impl Batcher {
         }
 
         let events: Vec<IngestionEvent> = std::mem::take(buffer);
-        debug!(
-            "Batcher flushing {} events via native ingestion",
-            events.len()
-        );
+        debug!("Batcher flushing {} events via OTLP", events.len());
 
-        match client.ingest_native(events).await {
+        match client.ingest(events).await {
             Ok(()) => {
-                debug!("Batcher native ingestion flush successful");
+                debug!("Batcher OTLP flush successful");
             }
             Err(e) => {
                 error!("Batcher native ingestion flush failed: {}", e);

@@ -160,6 +160,7 @@ impl LangfuseClient {
                 .post(&url)
                 .header("Authorization", &self.auth_header)
                 .header("Content-Type", "application/json")
+                .header("x-langfuse-ingestion-version", "4")
                 .json(&payload)
                 .send()
                 .await;
@@ -168,8 +169,9 @@ impl LangfuseClient {
                 Ok(response) => {
                     let status = response.status();
                     if status.is_success() {
-                        if let Err(e) = response.bytes().await {
-                            warn!("Native ingestion response body read failed: {}", e);
+                        let body = response.text().await.unwrap_or_default();
+                        if !body.contains("\"success\"") && body.len() > 5 {
+                            warn!("Native ingestion response: {}", body);
                         }
                         return Ok(());
                     } else if status.is_client_error() {
