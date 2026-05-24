@@ -4,10 +4,12 @@
 //! Each session owns a ThreadStore entry, an Agent instance, and associated state.
 
 pub mod agent_pool;
+pub mod agent_runtime;
 pub mod event_sink;
 pub mod executor;
 pub mod state_builders;
 
+use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
@@ -23,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::provider::config::{PeriConfig, ThinkingConfig};
 use crate::provider::LlmProvider;
+use crate::session::agent_runtime::{AgentRuntime, CancelPolicy};
 
 /// Entry in the pending requests table, keyed by JSON-RPC request ID.
 #[derive(Debug)]
@@ -53,6 +56,8 @@ pub struct AcpSession {
     pub pending_requests: DashMap<RequestId, PendingRequestEntry>,
     /// Monotonic counter for assigning generations to pending requests.
     pub pending_gen: AtomicU64,
+    /// 运行时 agent 实例（根 agent + 子 agent）
+    pub active_agents: HashMap<ThreadId, AgentRuntime>,
 }
 
 struct SessionManagerInner {
@@ -141,6 +146,7 @@ impl SessionManager {
             thinking,
             pending_requests: DashMap::new(),
             pending_gen: AtomicU64::new(0),
+            active_agents: HashMap::new(),
         };
 
         self.inner.sessions.insert(session_id.clone(), session);
@@ -161,11 +167,16 @@ impl SessionManager {
             thinking: self.inner.peri_config.config.thinking.clone(),
             pending_requests: DashMap::new(),
             pending_gen: AtomicU64::new(0),
+            active_agents: HashMap::new(),
         }
     }
 
     pub async fn close_session(&self, session_id: &str) -> anyhow::Result<()> {
         if let Some((_, session)) = self.inner.sessions.remove(session_id) {
+            // 取消所有运行时 agent 实例
+            for runtime in session.active_agents.values() {
+                runtime.cancel_token.cancel();
+            }
             session.cancel_token.cancel();
         }
         Ok(())
@@ -254,5 +265,23 @@ impl SessionManager {
         thread_id: &ThreadId,
     ) -> anyhow::Result<Vec<BaseMessage>> {
         self.inner.thread_store.load_messages(thread_id).await
+    }
+}
+
+impl AcpSession {
+    /// 取消指定 agent 的所有 cascade 子 agent
+    pub fn cancel_cascade_children(&self) {
+        for runtime in self.active_agents.values() {
+            if runtime.cancel_policy == CancelPolicy::Cascade {
+                runtime.cancel_token.cancel();
+            }
+        }
+    }
+
+    /// 取消所有 agent（session 结束时）
+    pub fn cancel_all_agents(&self) {
+        for runtime in self.active_agents.values() {
+            runtime.cancel_token.cancel();
+        }
     }
 }
