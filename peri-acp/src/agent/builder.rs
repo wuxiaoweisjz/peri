@@ -85,6 +85,8 @@ pub struct AcpAgentOutput {
     pub todo_rx: tokio::sync::mpsc::Receiver<Vec<TodoItem>>,
     #[allow(dead_code)]
     pub context_window: u32,
+    /// 后台任务完成事件的独立接收端（不随 executor 生命周期销毁）
+    pub bg_event_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
 }
 
 /// 构建可复用的 Agent（ACP 和 TUI 共用核心构建逻辑）
@@ -236,6 +238,9 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
         bg_notification_tx,
     ));
 
+    // 后台任务完成事件的独立通道（不随 executor 生命周期销毁）
+    let (bg_event_tx, bg_event_rx) = tokio::sync::mpsc::unbounded_channel();
+
     let claude_md_excludes = peri_config
         .config
         .claude_md_excludes
@@ -252,6 +257,7 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
     .with_cancel(cancel.clone())
     .with_parent_messages(parent_messages)
     .with_background_registry(Arc::clone(&background_registry))
+    .with_bg_event_sender(bg_event_tx)
     .with_registered_hooks(vec![]);
     if let Some(factory) = child_handler_factory {
         subagent = subagent.with_child_handler_factory(factory);
@@ -413,5 +419,6 @@ pub fn build_agent(cfg: AcpAgentConfig) -> AcpAgentOutput {
         executor,
         todo_rx,
         context_window,
+        bg_event_rx,
     }
 }

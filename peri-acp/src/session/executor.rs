@@ -150,8 +150,9 @@ pub async fn execute_prompt(
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorEvent>();
     let event_tx = Arc::new(std::sync::Mutex::new(Some(event_tx)));
 
-    // Background event pump
+    // Main event pump
     let sink = event_sink;
+    let bg_sink = Arc::clone(&sink);
     let sid = session_id.clone();
     let (pump_done_tx, pump_done_rx) = oneshot::channel();
     let pump_cw = effective_context_window;
@@ -317,6 +318,20 @@ pub async fn execute_prompt(
         compact_event_tx: Some(event_tx.clone()),
     });
 
+    // Phase 2: bg event pump — starts before executor runs so events arrive
+    // promptly even for tasks completing mid-execution. Outlives executor;
+    // exits when all bg spawn closures finish and drop their senders.
+    {
+        let mut bg_event_rx = agent_output.bg_event_rx;
+        let bg_session_id = session_id.clone();
+        let bg_cw = effective_context_window;
+        tokio::spawn(async move {
+            while let Some(bg_event) = bg_event_rx.recv().await {
+                bg_sink.push_event(&bg_session_id, &bg_event, bg_cw).await;
+            }
+        });
+    }
+
     // 转发 todo 更新为 ExecutorEvent::TodoUpdate
     let mut todo_rx = agent_output.todo_rx;
     let tx_for_todo = event_tx.clone();
@@ -352,19 +367,6 @@ pub async fn execute_prompt(
         .executor
         .execute(agent_input.clone(), &mut agent_state, Some(cancel.clone()))
         .await;
-    // Drain remaining background task notifications that arrived after
-    // the final answer but before the executor is dropped.
-    // Also adds the notification to agent_state so it's included in
-    // result.messages → state.history → the next prompt's context.
-    if let Some(ref rx) = agent_output.executor.notification_rx {
-        let mut rx_lock = rx.lock().await;
-        while let Ok(bg_result) = rx_lock.try_recv() {
-            agent_state.add_message(BaseMessage::human(bg_result.to_notification()));
-            if let Some(tx) = event_tx.lock().unwrap().as_ref() {
-                let _ = tx.send(ExecutorEvent::BackgroundTaskCompleted(bg_result));
-            }
-        }
-    }
     drop(agent_output.executor);
 
     let ok = result.is_ok();

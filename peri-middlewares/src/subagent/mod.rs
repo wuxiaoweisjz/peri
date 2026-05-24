@@ -104,6 +104,9 @@ pub struct SubAgentMiddleware {
     /// avoiding shared Lock (e.g., Langfuse Mutex) contention in concurrent execution.
     #[allow(clippy::type_complexity)]
     child_handler_factory: Option<Arc<dyn Fn(String) -> Arc<dyn AgentEventHandler> + Send + Sync>>,
+    /// 后台任务完成事件的���立发送通道（不随 executor 生命周期销毁）
+    bg_event_sender:
+        Option<tokio::sync::mpsc::UnboundedSender<peri_agent::agent::events::AgentEvent>>,
 }
 
 impl SubAgentMiddleware {
@@ -127,6 +130,7 @@ impl SubAgentMiddleware {
             background_registry: None,
             registered_hooks: Arc::new(Vec::new()),
             child_handler_factory: None,
+            bg_event_sender: None,
         }
     }
 
@@ -180,6 +184,17 @@ impl SubAgentMiddleware {
         self
     }
 
+    /// Set background task event sender.
+    /// The sender survives executor lifecycle, allowing bg task results to reach TUI
+    /// even after the main agent finishes.
+    pub fn with_bg_event_sender(
+        mut self,
+        sender: tokio::sync::mpsc::UnboundedSender<peri_agent::agent::events::AgentEvent>,
+    ) -> Self {
+        self.bg_event_sender = Some(sender);
+        self
+    }
+
     /// Build SubAgentTool instance (clone Arc fields, do not transfer ownership)
     pub fn build_tool(&self, cwd: &str) -> SubAgentTool {
         let mut tool = SubAgentTool::new(
@@ -205,6 +220,9 @@ impl SubAgentMiddleware {
         }
         if let Some(ref factory) = self.child_handler_factory {
             tool = tool.with_child_handler_factory(Arc::clone(factory));
+        }
+        if let Some(ref sender) = self.bg_event_sender {
+            tool = tool.with_bg_event_sender(sender.clone());
         }
         tool
     }

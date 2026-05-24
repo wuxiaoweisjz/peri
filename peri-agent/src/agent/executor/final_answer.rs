@@ -28,7 +28,6 @@ async fn drain_notifications<L: ReactLLM, S: State>(agent: &ReActAgent<L, S>, st
         while let Ok(result) = rx_lock.try_recv() {
             let msg = BaseMessage::human(result.to_notification());
             state.add_message(msg);
-            agent.emit(AgentEvent::BackgroundTaskCompleted(result));
         }
     }
 }
