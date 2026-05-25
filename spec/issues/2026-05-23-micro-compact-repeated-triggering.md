@@ -1,6 +1,6 @@
 # Micro Compact 重复触发，每轮工具调用后都显示"自动清理"通知
 
-**状态**：Pending Verification
+**状态**：verify
 **优先级**：中
 **创建日期**：2026-05-23
 
@@ -19,11 +19,13 @@
 ## 修复
 
 给 `CompactMiddleware` 添加 `micro_compact_done: AtomicBool` 标志：
+
 - micro compact 触发一次后设置标志，后续轮次不再重复触发
 - full compact（85% 阈值）不受影响，仍可正常触发
 - 每次 `execute_prompt` 创建新的 `CompactMiddleware` 实例，标志天然 per-prompt 作用域
 
 **修改文件**：
+
 - `peri-middlewares/src/compact_middleware.rs`：添加 `micro_compact_done: AtomicBool` 字段 + `before_model` 守卫
 - `peri-middlewares/src/compact_middleware_test.rs`：添加 `test_micro_compact_once_per_prompt` 测试 + 更新 `make_middleware()`
 

@@ -1,6 +1,6 @@
 # 工具调用失败后 TUI 卡住（spinner 持续旋转）
 
-**状态**：Open
+**状态**：Verify
 **优先级**：高
 **创建日期**：2026-05-20
 
@@ -36,20 +36,24 @@
 对完整数据流链路进行了代码审查：
 
 **agent 层（`peri-agent`）**：
+
 - `tool_dispatch.rs`：`ToolNotFound` 被正确处理为非致命 `ToolResult::error`，ReAct 循环应继续
 - `llm_step.rs`：`call_llm` 使用 `tokio::select!` 与 cancel token 竞争，LLM 调用本身不应无限阻塞
 - `mod.rs`（ReAct 循环）：工具错误后循环继续，下一次 `call_llm` 应被调用
 
 **executor 层（`peri-acp`）**：
+
 - `executor.rs`：agent 执行完成后（无论成功/失败），会发送 `AgentExecutionFailed` 事件，然后关闭 channel，pump drain 后调用 `push_done`
 - 事件泵使用 unbounded channel，`send_notification` 非阻塞
 
 **TUI 层（`peri-tui`）**：
+
 - `acp_bridge.rs`：`AgentDone` → `AgentEvent::Done`，`AgentExecutionFailed` → `AgentEvent::Error`
 - `lifecycle.rs`：`handle_done` 和 `handle_error` 都调用 `cleanup_agent_state` → `set_loading(false)`
 - `polling.rs`：`try_recv` 非阻塞，`Disconnected` 路径也会清理状态
 
 **代码路径结论**：错误路径的完成信号传递在代码层面看起来正确。问题可能在于：
+
 1. **agent 执行本身未返回**——工具错误后的下一轮 LLM 调用可能因特定原因挂起
 2. **超时场景特殊**——工具调用超时（而非立即返回错误）可能触发了不同的代码路径
 3. **`run_on_error` / `after_tool` 中间件阻塞**——错误处理链中的某个中间件可能在特定条件下阻塞
