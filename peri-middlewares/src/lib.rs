@@ -42,6 +42,7 @@ pub use plugin::{
     PluginCommand, PluginCommandEntry, PluginCommandProvider, PluginConfigError, PluginLspServer,
     PluginManifest, PluginMiddleware, PluginOption,
 };
+pub mod at_mention;
 pub mod skills;
 pub mod tool_search;
 pub mod tools;
@@ -52,6 +53,7 @@ pub use ask_user::{
     ask_user_tool_definition, parse_ask_user, AskUserBatchRequest, AskUserOption,
     AskUserQuestionData,
 };
+pub use at_mention::AtMentionMiddleware;
 pub use attribution::GitAttributionMiddleware;
 pub use cron::{CronMiddleware, CronScheduler, CronTask, CronTrigger};
 pub use hitl::{
