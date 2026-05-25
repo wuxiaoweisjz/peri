@@ -1,6 +1,6 @@
 # Ctrl+C 中断后支持撤回并重发上一条用户消息
 
-**状态**：已修复（多层修复，已实现并验证）
+**状态**：已完成（5 层修复，已验证）
 **优先级**：中
 **创建日期**：2026-05-25
 **修复日期**：2026-05-25
@@ -140,3 +140,13 @@ ExecutorEvent::AgentExecutionFailed { message } => {
 | `d43934b` | fix(tui): only undo user message on interrupt when no tool calls were made |
 | `f742246` | fix(tui): locate UserBubble by rposition instead of stale round_start_vm_idx |
 | `0d09f68` | fix(tui): exclude UserBubble from ephemeral_notes save in RebuildAll |
+| `9e6e97a` | docs: add Layer 5 to issue |
+
+## 验证
+
+- [x] 纯文本回复时 Ctrl+C → 撤回用户消息，恢复文本框
+- [x] 工具调用执行中 Ctrl+C → 只中断工具，保留对话历史
+- [x] SubAgent 执行中 Ctrl+C → 忽略，不干扰父 Agent
+- [x] ACP 层 `state.history` 回滚正确
+- [x] 全量测试通过，clippy 无警告
+- [x] 日志验证 Layer 5 修复有效（`view_len_after=1`→ephemeral_notes 不再回插 UserBubble）
