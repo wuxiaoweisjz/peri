@@ -163,75 +163,66 @@ impl App {
             self.apply_pipeline_action(action);
         }
 
-        let agent_replied = self.session_mgr.sessions[self.session_mgr.active]
-            .agent
-            .agent_replied;
-        if !agent_replied {
-            // Agent 尚未回复，恢复用户文本到输入框
-            if let Some(text) = self.session_mgr.sessions[self.session_mgr.active]
+        // 始终尝试恢复用户文本到输入框（无论 agent 是否已回复）
+        if let Some(text) = self.session_mgr.sessions[self.session_mgr.active]
+            .messages
+            .last_submitted_text
+            .take()
+        {
+            let round_start = self.session_mgr.sessions[self.session_mgr.active]
                 .messages
-                .last_submitted_text
-                .take()
-            {
-                let round_start = self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .round_start_vm_idx;
-                // 截断 view_messages（移除本轮 Human 消息）
-                self.apply_pipeline_action(PipelineAction::RebuildAll {
-                    prefix_len: round_start,
-                    tail_vms: vec![],
-                });
-                // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
-                let pre_len = self.session_mgr.sessions[self.session_mgr.active]
-                    .metadata
-                    .pre_submit_state_len;
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .agent_state_messages
-                    .truncate(pre_len);
-                // 恢复文本到输入框
-                let mut ta = crate::app::build_textarea(false);
-                ta.insert_str(text.clone());
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .ui
-                    .textarea = ta;
-                // 清除 pending 缓冲
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .pending_messages
-                    .clear();
-                // 清除 sticky header
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .metadata
-                    .last_human_message = None;
-                // 清除 pipeline 状态（completed 中含本轮 Human 消息）
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .pipeline
-                    .done();
-                let restored = self.session_mgr.sessions[self.session_mgr.active]
-                    .agent
-                    .agent_state_messages
-                    .clone();
-                self.session_mgr.sessions[self.session_mgr.active]
-                    .messages
-                    .pipeline
-                    .restore_completed(restored);
-                let vm = MessageViewModel::system(self.services.lc.tr("app-interrupted-resumed"));
-                self.apply_pipeline_action(PipelineAction::AddMessage(vm));
-            } else {
-                let vm = MessageViewModel::system(self.services.lc.tr("app-interrupt-done"));
-                self.apply_pipeline_action(PipelineAction::AddMessage(vm));
-            }
-        } else {
-            self.request_rebuild();
-            let vm = MessageViewModel::system(self.services.lc.tr("app-interrupt-done"));
-            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
-            // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖通知消息
+                .round_start_vm_idx;
+            // 截断 view_messages（移除本轮 Human 消息 + Agent 响应）
+            self.apply_pipeline_action(PipelineAction::RebuildAll {
+                prefix_len: round_start,
+                tail_vms: vec![],
+            });
+            // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
+            let pre_len = self.session_mgr.sessions[self.session_mgr.active]
+                .metadata
+                .pre_submit_state_len;
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .reconcile_already_done = true;
+                .agent_state_messages
+                .truncate(pre_len);
+            // 恢复文本到输入框
+            let mut ta = crate::app::build_textarea(false);
+            ta.insert_str(text.clone());
+            self.session_mgr.sessions[self.session_mgr.active]
+                .ui
+                .textarea = ta;
+            // 清除 pending 缓冲
+            self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .pending_messages
+                .clear();
+            // 清除 sticky header
+            self.session_mgr.sessions[self.session_mgr.active]
+                .metadata
+                .last_human_message = None;
+            // 清除 pipeline 状态
+            self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .pipeline
+                .done();
+            let restored = self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .agent_state_messages
+                .clone();
+            self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .pipeline
+                .restore_completed(restored);
+            let vm = MessageViewModel::system(self.services.lc.tr("app-interrupted-resumed"));
+            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
+        } else {
+            let vm = MessageViewModel::system(self.services.lc.tr("app-interrupt-done"));
+            self.apply_pipeline_action(PipelineAction::AddMessage(vm));
         }
+        // 标记 reconcile 已完成，防止后续 Done 事件重复 RebuildAll 覆盖通知消息
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .reconcile_already_done = true;
         (true, false, false)
     }
 

@@ -395,82 +395,71 @@ impl App {
                     .last_task_duration = Some(start.elapsed());
             }
 
-            // 如果 agent 尚未回复，恢复用户文本到输入框
-            if !self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .agent_replied
+            // 始终尝试恢复用户文本到输入框（无论 agent 是否已回复）
+            if let Some(text) = self.session_mgr.sessions[self.session_mgr.active]
+                .messages
+                .last_submitted_text
+                .take()
             {
-                if let Some(text) = self.session_mgr.sessions[self.session_mgr.active]
+                let round_start = self.session_mgr.sessions[self.session_mgr.active]
                     .messages
-                    .last_submitted_text
-                    .take()
+                    .round_start_vm_idx;
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .view_messages
+                    .truncate(round_start);
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .ephemeral_notes
+                    .retain(|(a, _)| *a < round_start);
                 {
-                    let round_start = self.session_mgr.sessions[self.session_mgr.active]
-                        .messages
-                        .round_start_vm_idx;
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    let remaining = self.session_mgr.sessions[self.session_mgr.active]
                         .messages
                         .view_messages
-                        .truncate(round_start);
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .messages
-                        .ephemeral_notes
-                        .retain(|(a, _)| *a < round_start);
-                    {
-                        let remaining = self.session_mgr.sessions[self.session_mgr.active]
-                            .messages
-                            .view_messages
-                            .clone();
-                        let _ = self.session_mgr.sessions[self.session_mgr.active]
-                            .messages
-                            .render_tx
-                            .send(RenderEvent::Rebuild(remaining));
-                    }
-                    // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
-                    let pre_len = self.session_mgr.sessions[self.session_mgr.active]
-                        .metadata
-                        .pre_submit_state_len;
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .agent_state_messages
-                        .truncate(pre_len);
-                    // 清除 pipeline 状态
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .messages
-                        .pipeline
-                        .done();
-                    let restored = self.session_mgr.sessions[self.session_mgr.active]
-                        .agent
-                        .agent_state_messages
                         .clone();
-                    self.session_mgr.sessions[self.session_mgr.active]
+                    let _ = self.session_mgr.sessions[self.session_mgr.active]
                         .messages
-                        .pipeline
-                        .restore_completed(restored);
-                    let mut ta = build_textarea(false);
-                    ta.insert_str(text.clone());
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .ui
-                        .textarea = ta;
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .messages
-                        .pending_messages
-                        .clear();
-                    self.session_mgr.sessions[self.session_mgr.active]
-                        .metadata
-                        .last_human_message = None;
-                    self.push_system_note(format!(
-                        "⚠ {}",
-                        self.services.lc.tr("app-interrupted-resumed")
-                    ));
-                    self.render_rebuild();
-                } else {
-                    self.push_system_note(format!(
-                        "⚠ {}",
-                        self.services.lc.tr("app-interrupted-background")
-                    ));
-                    self.render_rebuild();
+                        .render_tx
+                        .send(RenderEvent::Rebuild(remaining));
                 }
+                // 截断 agent_state_messages（回滚 StateSnapshot 扩展的内容）
+                let pre_len = self.session_mgr.sessions[self.session_mgr.active]
+                    .metadata
+                    .pre_submit_state_len;
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .agent
+                    .agent_state_messages
+                    .truncate(pre_len);
+                // 清除 pipeline 状态
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .pipeline
+                    .done();
+                let restored = self.session_mgr.sessions[self.session_mgr.active]
+                    .agent
+                    .agent_state_messages
+                    .clone();
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .pipeline
+                    .restore_completed(restored);
+                let mut ta = build_textarea(false);
+                ta.insert_str(text.clone());
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .ui
+                    .textarea = ta;
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .messages
+                    .pending_messages
+                    .clear();
+                self.session_mgr.sessions[self.session_mgr.active]
+                    .metadata
+                    .last_human_message = None;
+                self.push_system_note(format!(
+                    "⚠ {}",
+                    self.services.lc.tr("app-interrupted-resumed")
+                ));
+                self.render_rebuild();
             } else {
                 self.push_system_note(format!(
                     "⚠ {}",

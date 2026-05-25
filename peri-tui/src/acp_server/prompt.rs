@@ -161,8 +161,14 @@ pub(crate) async fn execute_prompt(
                         tracing::warn!(error = %e, "Failed to persist messages to ThreadStore");
                     }
                 }
+                state.history = result.messages;
+            } else {
+                // Execution failed or was cancelled — roll back to pre-submit state.
+                // This prevents the cancelled round's user message + partial AI response
+                // from appearing in the next prompt's context.
+                state.history.truncate(history_len);
+                info!(session_id = %session_id, history_len, "Agent execution failed/cancelled, rolled back history");
             }
-            state.history = result.messages;
             state.recall_items = result.recall_items;
             state.cancel_token = None;
         }
