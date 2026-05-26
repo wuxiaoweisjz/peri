@@ -153,6 +153,7 @@ impl MessagePipeline {
                         is_background: sub.is_background,
                         bg_hash: sub.bg_hash.clone(),
                         batch_agents: Vec::new(),
+                        instance_id: Some(sub.instance_id.clone()),
                     });
                 }
             }
@@ -173,6 +174,7 @@ impl MessagePipeline {
                         is_background: sub.is_background,
                         bg_hash: sub.bg_hash.clone(),
                         batch_agents: Vec::new(),
+                        instance_id: Some(sub.instance_id.clone()),
                     }
                 };
                 tail_vms.push(vm);

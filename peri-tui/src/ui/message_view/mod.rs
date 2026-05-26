@@ -76,6 +76,8 @@ pub enum MessageViewModel {
         bg_hash: Option<String>,
         /// 批次汇总信息：空 = 单 agent，非空 = 批次汇总模式
         batch_agents: Vec<AgentSummary>,
+        /// Agent 实例的唯一标识符（用于聚焦模式过滤）
+        instance_id: Option<String>,
     },
 }
 
@@ -149,6 +151,7 @@ impl PartialEq for MessageViewModel {
                     is_background: a_bg,
                     bg_hash: a_hash,
                     batch_agents: a_batch,
+                    instance_id: a_instance_id,
                     ..
                 },
                 MessageViewModel::SubAgentGroup {
@@ -161,6 +164,7 @@ impl PartialEq for MessageViewModel {
                     is_background: b_bg,
                     bg_hash: b_hash,
                     batch_agents: b_batch,
+                    instance_id: b_instance_id,
                     ..
                 },
             ) => {
@@ -173,6 +177,7 @@ impl PartialEq for MessageViewModel {
                     && a_bg == b_bg
                     && a_hash == b_hash
                     && a_batch == b_batch
+                    && a_instance_id == b_instance_id
             }
             _ => false,
         }
@@ -248,6 +253,7 @@ impl Hash for MessageViewModel {
                 is_background,
                 bg_hash,
                 batch_agents,
+                instance_id,
             } => {
                 6u8.hash(state);
                 agent_id.hash(state);
@@ -261,6 +267,7 @@ impl Hash for MessageViewModel {
                 is_background.hash(state);
                 bg_hash.hash(state);
                 batch_agents.hash(state);
+                instance_id.hash(state);
             }
         }
     }
@@ -521,6 +528,7 @@ impl MessageViewModel {
                         is_background,
                         bg_hash,
                         batch_agents: Vec::new(),
+                        instance_id: None,
                     };
                 }
                 // 使用统一格式化函数生成 display_name 和 args_display
@@ -687,6 +695,7 @@ impl MessageViewModel {
             is_background: false,
             bg_hash: None,
             batch_agents: Vec::new(),
+            instance_id: None,
         }
     }
 

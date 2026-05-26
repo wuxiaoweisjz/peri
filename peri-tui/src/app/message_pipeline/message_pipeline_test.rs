@@ -1299,6 +1299,7 @@ fn test_merge_frozen_subagents_empty_is_noop() {
         is_background: false,
         bg_hash: Some("abc123".to_string()),
         batch_agents: Vec::new(),
+        instance_id: None,
     }];
     let original = new_vms.clone();
     merge_frozen_subagents(&[], &mut new_vms);

@@ -485,6 +485,7 @@ impl MessagePipeline {
                         is_background: false,
                         bg_hash: sub.bg_hash.clone(),
                         batch_agents: Vec::new(),
+                        instance_id: Some(sub.instance_id.clone()),
                     };
                     sub.finalized_vm = Some(vm.clone());
                     // 立即冻结：RebuildAll 可能在下一个 StateSnapshot 前触发
@@ -624,6 +625,7 @@ impl MessagePipeline {
                         is_background: sub.is_background,
                         bg_hash: sub.bg_hash,
                         batch_agents: Vec::new(),
+                        instance_id: Some(sub.instance_id),
                     });
             }
             // 已 finalized（finalized_vm.is_some()）的不推入——tool_end_internal 已处理
@@ -738,10 +740,20 @@ impl MessagePipeline {
     }
 
     /// 根据聚焦的 agent instance_id 过滤 VM 列表
-    /// 第一版实现：保留所有消息，聚焦模式仅影响输入框样式
-    pub fn filter_for_focus(_vms: &mut Vec<MessageViewModel>, _focused_instance_id: Option<&str>) {
-        // TODO: 精确过滤需要在 SubAgentGroup 中存储 instance_id
-        // 当前 SubAgentGroup 仅有 bg_hash，无法精确匹配
+    pub fn filter_for_focus(vms: &mut Vec<MessageViewModel>, focused_instance_id: Option<&str>) {
+        if let Some(id) = focused_instance_id {
+            vms.retain(|vm| {
+                match vm {
+                    MessageViewModel::SubAgentGroup {
+                        is_background: true,
+                        instance_id: Some(iid),
+                        ..
+                    } => iid == id,
+                    // 非后台 SubAgentGroup 和其他消息始终保留
+                    _ => true,
+                }
+            });
+        }
     }
 
     /// 从外部加载全量 BaseMessages（用于历史恢复后覆盖），并清除所有状态
