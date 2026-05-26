@@ -1,27 +1,64 @@
 use super::message_pipeline::PipelineAction;
+use super::message_pipeline::MessagePipeline;
 use super::*;
 use crate::ui::render_thread::RenderEvent;
 
 impl App {
-    /// 发送当前 view_messages 的全量重建到渲染线程
+    /// 发送当前 view_messages 的全量重建到渲染线程。
+    ///
+    /// 当聚焦后台 agent 时，从 SQLite 加载该 agent 的 child thread 消息，
+    /// 而非过滤内存中的 view_messages。这保证了 drain_subagent_stack 后
+    /// 后台 agent 的消息仍然完整可用。
     pub(crate) fn render_rebuild(&self) {
         let session = &self.session_mgr.sessions[self.session_mgr.active];
-        let _ = session
-            .messages
-            .render_tx
-            .send(RenderEvent::Rebuild(session.messages.view_messages.clone()));
+        let vms = self.resolve_render_vms(session);
+        let _ = session.messages.render_tx.send(RenderEvent::Rebuild(vms));
     }
 
-    /// 发送带滚动锚点的全量重建到渲染线程
+    /// 发送带滚动锚点的全量重建到渲染线程。
+    ///
+    /// 聚焦后台 agent 时忽略锚点（直接 Rebuild），因为 agent 视图与主视图
+    /// 的滚动位置不共享。
     pub(crate) fn render_rebuild_with_anchor(&self, anchor_message_idx: usize) {
         let session = &self.session_mgr.sessions[self.session_mgr.active];
-        let _ = session
-            .messages
-            .render_tx
-            .send(RenderEvent::RebuildWithAnchor {
-                messages: session.messages.view_messages.clone(),
-                anchor_message_idx,
+        if session.focused_instance_id.is_some() {
+            // 聚焦模式：从 SQLite 加载，��保留主视图锚点
+            let vms = self.resolve_render_vms(session);
+            let _ = session.messages.render_tx.send(RenderEvent::Rebuild(vms));
+        } else {
+            let vms = session.messages.view_messages.clone();
+            let adjusted_anchor = anchor_message_idx.min(vms.len().saturating_sub(1));
+            let _ = session
+                .messages
+                .render_tx
+                .send(RenderEvent::RebuildWithAnchor {
+                    messages: vms,
+                    anchor_message_idx: adjusted_anchor,
+                });
+        }
+    }
+
+    /// 根据聚焦状态决定渲染数据源。
+    ///
+    /// - 未聚焦：返回内存中的 view_messages
+    /// - 聚焦后台 agent：从 SQLite 加载 child thread 的完整消息
+    fn resolve_render_vms(&self, session: &ChatSession) -> Vec<MessageViewModel> {
+        if let Some(ref thread_id) = session.focused_instance_id {
+            let store = self.services.thread_store.clone();
+            let tid = thread_id.clone();
+            let base_msgs = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(store.load_messages(&tid))
+                    .unwrap_or_default()
             });
+            if base_msgs.is_empty() {
+                // SQLite 中尚无消息（agent 刚启动），回退到内存 view_messages
+                return session.messages.view_messages.clone();
+            }
+            MessagePipeline::messages_to_view_models(&base_msgs, &self.services.cwd)
+        } else {
+            session.messages.view_messages.clone()
+        }
     }
 
     /// 从 pipeline 规范状态触发 RebuildAll（统一入口）。

@@ -12,6 +12,12 @@
 
 请使用 bg fork subagent  say hello， 但是它要先 sleep 10s
 
+> 验证 bg subagent 的分 agent 情况查看
+
+请使用 bg fork subagent  say hello， 但是它要先 sleep 60s
+
 > 验证 bg agent 消息并发回调触发会话
 
 请直接派出三个 bg 的 hello agent say hello
+
+派出 agent 执行下面的任务 ”说一句 1 然后调用两次 read， 然后说 2,两次 read， 重复直到 4“

@@ -11,7 +11,7 @@ pub(crate) use message_area::highlight_line_spans;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Padding, Paragraph},
     Frame,
 };
 
@@ -72,8 +72,14 @@ pub fn render(f: &mut Frame, app: &mut App) {
                 .split(outer[1]);
             status_bar::render_status_bar(f, app, bottom_chunks[0]);
             bg_agent_bar::render_bg_agent_bar(f, app, bottom_chunks[1]);
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_area = Some(bottom_chunks[1]);
         } else {
             status_bar::render_status_bar(f, app, outer[1]);
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_area = None;
         }
     } else {
         // ── 单 Session 布局（原有行为）──
@@ -284,8 +290,9 @@ fn render_session_column(
     if bar_focused {
         // Bar 焦点模式：输入框变暗
         let block = ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
-            .border_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
+            .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
+            .border_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray))
+            .padding(Padding::new(2, 0, 0, 0));
         app.session_mgr.sessions[session_idx]
             .ui
             .textarea
@@ -304,8 +311,9 @@ fn render_session_column(
             .unwrap_or("agent");
         let title = format!("[{}]", agent_name);
         let block = ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
+            .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
             .border_style(ratatui::style::Style::default().fg(color))
+            .padding(Padding::new(2, 0, 0, 0))
             .title(title);
         app.session_mgr.sessions[session_idx]
             .ui
@@ -316,10 +324,17 @@ fn render_session_column(
             .textarea
             .set_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
     } else {
-        // 正常模式
+        // 正常模式：恢复与 build_textarea 一致的边框样式
+        let loading = app.session_mgr.sessions[session_idx].ui.loading;
+        let border_color = if loading {
+            theme::MUTED
+        } else {
+            theme::BORDER_DIM
+        };
         let block = ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
-            .border_style(ratatui::style::Style::default());
+            .borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM)
+            .border_style(ratatui::style::Style::default().fg(border_color))
+            .padding(Padding::new(2, 0, 0, 0));
         app.session_mgr.sessions[session_idx]
             .ui
             .textarea
@@ -327,7 +342,7 @@ fn render_session_column(
         app.session_mgr.sessions[session_idx]
             .ui
             .textarea
-            .set_style(ratatui::style::Style::default());
+            .set_style(ratatui::style::Style::default().fg(theme::TEXT));
     }
 
     // 输入框：非聚焦 session 或应用失焦时隐藏光标（移除 REVERSED 修饰符）
@@ -383,6 +398,13 @@ fn render_session_column(
         status_bar::render_status_bar(f, app, chunks[6]);
         if bg_bar_height_val > 0 {
             bg_agent_bar::render_bg_agent_bar(f, app, chunks[7]);
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_area = Some(chunks[7]);
+        } else {
+            app.session_mgr.sessions[app.session_mgr.active]
+                .ui
+                .bg_bar_area = None;
         }
     }
 

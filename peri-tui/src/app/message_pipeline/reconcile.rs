@@ -29,34 +29,90 @@ pub enum PipelineAction {
 /// 合并冻结的 SubAgentGroup VM 到 reconcile 重建后的新 VMs 中，防止 Done 后 SubAgent 显示退化。
 ///
 /// `frozen_vms` 是 SubAgentEnd 时构建的完整 SubAgentGroup VM（含 recent_messages、final_result 等），
-/// 按 `agent_id` 精确匹配替换新 VMs 中的 SubAgentGroup 占位符。
-/// 同一 agent_id（重试场景）取 frozen_vms 中最后一次出现的。
+/// 按 `agent_id` 匹配替换新 VMs 中的 SubAgentGroup 占位符。
+///
+/// 匹配策略：优先用 `instance_id`（如果两边都有值）精确匹配；
+/// 回退到 `agent_id` 匹配（reconcile VM 的 instance_id 为 None 时的兼容路径）。
+/// 对于同一 `agent_id` 的多个 VM，使用位置匹配保证一一对应。
+///
+/// 返回未匹配的冻结 VM 索引集合（供调用方决定是否追加到 tail_vms）。
 pub(crate) fn merge_frozen_subagents(
     frozen_vms: &[MessageViewModel],
     new_vms: &mut [MessageViewModel],
-) {
+) -> Vec<usize> {
     if frozen_vms.is_empty() {
-        return;
+        return Vec::new();
     }
 
-    let frozen_by_id: std::collections::HashMap<&str, &MessageViewModel> = frozen_vms
+    // 收集 reconcile 中 SubAgentGroup 的索引
+    let new_subagent_indices: Vec<usize> = new_vms
         .iter()
-        .filter_map(|vm| {
-            if let MessageViewModel::SubAgentGroup { agent_id, .. } = vm {
-                Some((agent_id.as_str(), vm))
-            } else {
-                None
-            }
-        })
+        .enumerate()
+        .filter(|(_, vm)| vm.is_subagent_group())
+        .map(|(i, _)| i)
         .collect();
 
-    for vm in new_vms.iter_mut() {
-        if let MessageViewModel::SubAgentGroup { agent_id, .. } = vm {
-            if let Some(frozen) = frozen_by_id.get(agent_id.as_str()) {
-                *vm = (*frozen).clone();
+    let mut matched_frozen = vec![false; frozen_vms.len()];
+
+    // 第一轮：用 instance_id 精确匹配（frozen 有 instance_id，reconcile 可能有也可能没有）
+    for (fi, frozen_vm) in frozen_vms.iter().enumerate() {
+        if matched_frozen[fi] {
+            continue;
+        }
+        if let MessageViewModel::SubAgentGroup {
+            instance_id: Some(frozen_iid),
+            ..
+        } = frozen_vm
+        {
+            // 尝试在 new_vms 中找到 instance_id 匹配的 SubAgentGroup
+            for &ni in &new_subagent_indices {
+                if let MessageViewModel::SubAgentGroup {
+                    instance_id: Some(new_iid),
+                    ..
+                } = &new_vms[ni]
+                {
+                    if frozen_iid == new_iid {
+                        new_vms[ni] = frozen_vm.clone();
+                        matched_frozen[fi] = true;
+                        break;
+                    }
+                }
             }
         }
     }
+
+    // 第二轮：用 agent_id + 位置匹配（reconcile VM 的 instance_id 为 None）
+    for (fi, frozen_vm) in frozen_vms.iter().enumerate() {
+        if matched_frozen[fi] {
+            continue;
+        }
+        if let MessageViewModel::SubAgentGroup {
+            agent_id: frozen_aid,
+            ..
+        } = frozen_vm
+        {
+            for &ni in &new_subagent_indices {
+                if let MessageViewModel::SubAgentGroup {
+                    agent_id: new_aid, ..
+                } = &new_vms[ni]
+                {
+                    if frozen_aid == new_aid {
+                        new_vms[ni] = frozen_vm.clone();
+                        matched_frozen[fi] = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // 返回未匹配的冻结 VM 索引
+    matched_frozen
+        .iter()
+        .enumerate()
+        .filter(|(_, &m)| !m)
+        .map(|(i, _)| i)
+        .collect()
 }
 
 impl MessagePipeline {
@@ -138,7 +194,14 @@ impl MessagePipeline {
 
         // SubAgentGroup VMs
         if self.has_snapshot_this_round {
-            merge_frozen_subagents(&self.frozen_subagent_vms, &mut tail_vms);
+            let unmatched = merge_frozen_subagents(&self.frozen_subagent_vms, &mut tail_vms);
+            // 将未匹配的冻结 VM（reconcile 中没有对应 SubAgentGroup 的后台 agent）
+            // 直接追加到 tail_vms，防止后台 agent 从视图中消失。
+            for idx in unmatched {
+                if let Some(frozen) = self.frozen_subagent_vms.get(idx) {
+                    tail_vms.push(frozen.clone());
+                }
+            }
             for sub in &self.subagent_stack {
                 if sub.finalized_vm.is_none() {
                     tail_vms.push(MessageViewModel::SubAgentGroup {

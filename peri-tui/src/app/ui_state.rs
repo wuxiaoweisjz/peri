@@ -36,6 +36,8 @@ pub struct UiState {
     pub at_mention: AtMentionState,
     /// 后台 Agent Bar 光标位置
     pub bg_bar_cursor: Option<usize>,
+    /// 后台 Agent Bar 渲染区域（用于鼠标点击检测）
+    pub bg_bar_area: Option<ratatui::layout::Rect>,
 }
 
 impl UiState {
@@ -67,6 +69,7 @@ impl UiState {
             panel_scrollbar_dragging: false,
             at_mention: AtMentionState::new(),
             bg_bar_cursor: None,
+            bg_bar_area: None,
         }
     }
 }

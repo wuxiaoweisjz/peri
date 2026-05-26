@@ -153,6 +153,7 @@ impl App {
                 agent_id,
                 is_running,
                 is_background,
+                total_steps,
                 bg_hash: _,
                 final_result,
                 is_error,
@@ -167,6 +168,7 @@ impl App {
                     *is_running = false;
                     *final_result = Some(output.clone());
                     *is_error = !success;
+                    *total_steps = tool_calls_count;
                     found_and_updated = true;
                     break;
                 }
@@ -181,6 +183,7 @@ impl App {
                     agent_id,
                     is_running,
                     is_background,
+                    total_steps,
                     bg_hash: _,
                     final_result,
                     is_error,
@@ -191,12 +194,14 @@ impl App {
                         *is_running = false;
                         *final_result = Some(output.clone());
                         *is_error = !success;
+                        *total_steps = tool_calls_count;
                         found_and_updated = true;
                         break;
                     }
                 }
             }
         }
+
 
         if found_and_updated {
             // 成功更新 SubAgentGroup，触发 RebuildAll

@@ -627,9 +627,27 @@ impl MessagePipeline {
                         batch_agents: Vec::new(),
                         instance_id: Some(sub.instance_id),
                     });
+            } else if sub.finalized_vm.is_none() && sub.is_running && sub.is_background {
+                // 后台 agent 仍在运行：冻结以保留当前 recent_messages，
+                // 后续 BackgroundTaskCompleted 会直接更新 view_messages
+                self.frozen_subagent_vms
+                    .push(MessageViewModel::SubAgentGroup {
+                        agent_id: sub.agent_id,
+                        task_preview: sub.task_preview,
+                        total_steps: sub.total_steps,
+                        recent_messages: sub.recent_messages,
+                        is_running: true,
+                        collapsed: false,
+                        final_result: None,
+                        is_error: false,
+                        is_background: true,
+                        bg_hash: sub.bg_hash,
+                        batch_agents: Vec::new(),
+                        instance_id: Some(sub.instance_id),
+                    });
             }
             // 已 finalized（finalized_vm.is_some()）的不推入——tool_end_internal 已处理
-            // 仍在运行（is_running=true）的不推入——background agent 仍在执行
+            // 仍在运行的前台 agent（is_running && !is_background）不推入
         }
     }
 
@@ -687,6 +705,11 @@ impl MessagePipeline {
         self.frozen_subagent_vms.len()
     }
 
+    /// 可变访问 frozen_subagent_vms（供 handle_background_task_completed 同步更新状态）
+    pub fn frozen_subagent_vms_mut(&mut self) -> &mut Vec<MessageViewModel> {
+        &mut self.frozen_subagent_vms
+    }
+
     // ── 轮次管理 ──────────────────────────────────────────────────────────────
 
     /// 标记新一轮对话开始。由 submit_message() 调用。
@@ -737,23 +760,6 @@ impl MessagePipeline {
         self.has_snapshot_this_round = true;
         self.pending_tools.clear();
         self.completed_tools.clear();
-    }
-
-    /// 根据聚焦的 agent instance_id 过滤 VM 列表
-    pub fn filter_for_focus(vms: &mut Vec<MessageViewModel>, focused_instance_id: Option<&str>) {
-        if let Some(id) = focused_instance_id {
-            vms.retain(|vm| {
-                match vm {
-                    MessageViewModel::SubAgentGroup {
-                        is_background: true,
-                        instance_id: Some(iid),
-                        ..
-                    } => iid == id,
-                    // 非后台 SubAgentGroup 和其他消息始终保留
-                    _ => true,
-                }
-            });
-        }
     }
 
     /// 从外部加载全量 BaseMessages（用于历史恢复后覆盖），并清除所有状态

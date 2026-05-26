@@ -425,6 +425,33 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
                         }
                     }
                 }
+                // ── bg_agent_bar 点击：直接触发聚焦/取消聚焦 ─────────────────────
+                {
+                    let session = &app.session_mgr.sessions[app.session_mgr.active];
+                    if let Some(bar_area) = session.ui.bg_bar_area {
+                        if mouse::mouse_in_rect(&mouse, bar_area) {
+                            let agents = &session.background_agents;
+                            let visible_count = agents.len().min(4);
+                            let rel_row = mouse.row.saturating_sub(bar_area.y) as usize;
+                            if rel_row == 0 {
+                                // 点击 main 行
+                                app.session_mgr.sessions[app.session_mgr.active]
+                                    .focused_instance_id = None;
+                            } else if rel_row <= visible_count {
+                                // 点击 agent 行（1-indexed → agent index）
+                                if let Some(agent) = agents.get(rel_row - 1) {
+                                    app.session_mgr.sessions[app.session_mgr.active]
+                                        .focused_instance_id = Some(agent.instance_id.clone());
+                                }
+                            }
+                            app.session_mgr.sessions[app.session_mgr.active]
+                                .ui
+                                .bg_bar_cursor = None;
+                            app.request_rebuild();
+                            return Ok(Some(Action::Redraw));
+                        }
+                    }
+                }
                 // Panel scrollbar: ▲/▼ buttons and bar click/drag
                 // Must be checked BEFORE dispatch_mouse so scrollbar clicks
                 // aren't consumed by panel content area handlers.
