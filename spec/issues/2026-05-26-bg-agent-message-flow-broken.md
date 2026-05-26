@@ -28,6 +28,28 @@
 ❯ [Background task bg-64f9f completed] Agent: general-purpose | Tool calls: 12 | Duration: 27843ms
 ```
 
+### 现象 2：并发同名后台 Agent 完成通知丢失（2026-05-26 追加）
+
+当单次 Agent 工具调用并发启动 N（≥2）个**同名**后台 SubAgent 时，LLM 上下文中只能收到一个完成通知。
+
+| 维度 | 表现 |
+|------|------|
+| 后台 agent 数量 | 3 个（同名 hello-agent） |
+| UI 管理栏 | 3 个都显示完成（● completed） |
+| LLM 看到的通知 | 仅 1 条 `[Background task bg-xxx completed]` |
+| LLM 回复 | "两个已完成，还有一个仍在运行"（实际三个都完成了） |
+| 复现频率 | 同名并发时必现 |
+
+**触发现场**：
+```
+用户: 派出三个 bg 的 hello agent say hello
+→ Agent 工具单次调用，batch 并发 3 个 hello-agent
+→ UI: ● bg-4b66c completed / ● bg-d7538 completed / ● bg-xxx completed
+→ LLM 上下文: 只收到一条完成通知，以为还有一个未完成
+```
+
+**根因**：`handle_background_task_completed()` 中的 SubAgentGroup 匹配循环（`agent_events_bg.rs:199-221`）按 `agent_name` + `is_running` 匹配，匹配到第一个后立即 `break`。第一个完成后 `is_running=false`，第二个/第三个完成事件匹配到**同一个**（已被第一个标为完成的）group，`break` 退出，后续仍 running 的 group 永远匹配不到。详见 `docs/superpowers/plans/2026-05-24-concurrent-bg-agent-completion-loss.md` Task 5。
+
 ## 复现条件
 
 - **复现频率**：必现
@@ -91,6 +113,9 @@
 | `peri-tui/src/app/agent_ops/subagent.rs` | SubAgent 事件路由、subagent_stack 管理 |
 | `peri-tui/src/app/agent_ops/lifecycle.rs` | handle_done、agent 生命周期 |
 | `peri-tui/src/ui/main_ui/bg_agent_bar.rs` | 后台 agent 管理栏 UI |
+| `peri-middlewares/src/subagent/tool/define.rs` | invoke_background、SubagentStarted/BackgroundTaskCompleted 发送 |
+| `peri-middlewares/src/subagent/background.rs` | BackgroundTaskRegistry、register() TOCTOU |
+| `docs/superpowers/plans/2026-05-24-concurrent-bg-agent-completion-loss.md` | 并发完成通知丢失的完整修复计划 |
 
 ---
 

@@ -195,28 +195,46 @@ impl App {
             }
         }
 
-        // 第二遍（兜底）：按 agent_name 匹配 is_running && final_result 为空的 SubAgentGroup
+        // 第二遍（兜底）：按 agent_name 匹配 is_running 的 SubAgentGroup
+        // 同名并发场景：优先匹配 final_result 为空的 group（尚未被更新），
+        // 防止多个同名 bg agent 的 completion 事件反复匹配同一个 group。
         if !found_and_updated {
-            for vm in &mut session.messages.view_messages {
+            let mut best_idx: Option<usize> = None;
+            for (idx, vm) in session.messages.view_messages.iter().enumerate() {
                 if let MessageViewModel::SubAgentGroup {
                     agent_id,
                     is_running,
                     is_background,
-                    total_steps,
-                    bg_hash: _,
                     final_result,
-                    is_error,
                     ..
                 } = vm
                 {
                     if *is_background && *is_running && agent_id == &agent_name {
-                        *is_running = false;
-                        *final_result = Some(output.clone());
-                        *is_error = !success;
-                        *total_steps = tool_calls_count;
-                        found_and_updated = true;
-                        break;
+                        if final_result.is_none() {
+                            best_idx = Some(idx);
+                            break; // 精确匹配：尚未被更新的 group
+                        }
+                        // 兜底：group 正在运行但已被更新（不应发生）
+                        if best_idx.is_none() {
+                            best_idx = Some(idx);
+                        }
                     }
+                }
+            }
+            if let Some(idx) = best_idx {
+                if let MessageViewModel::SubAgentGroup {
+                    is_running,
+                    total_steps,
+                    final_result,
+                    is_error,
+                    ..
+                } = &mut session.messages.view_messages[idx]
+                {
+                    *is_running = false;
+                    *final_result = Some(output.clone());
+                    *is_error = !success;
+                    *total_steps = tool_calls_count;
+                    found_and_updated = true;
                 }
             }
         }
@@ -278,6 +296,21 @@ impl App {
             );
         }
 
+        // 累积当前完成通知到 pre_done_bg_completions
+        let display_notification = build_bg_display_notification(
+            &task_id,
+            &agent_name,
+            success,
+            &output,
+            tool_calls_count,
+            duration_ms,
+            &self.services.lc,
+        );
+        self.session_mgr.sessions[self.session_mgr.active]
+            .agent
+            .pre_done_bg_completions
+            .push(display_notification);
+
         // 如果 agent 已完成（Done）且所有后台任务都已完成，关闭通道并自动提交 continuation
         if self.session_mgr.sessions[self.session_mgr.active]
             .agent
@@ -291,18 +324,16 @@ impl App {
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
                 .agent_rx = None;
-            let display_notification = build_bg_display_notification(
-                &task_id,
-                &agent_name,
-                success,
-                &output,
-                tool_calls_count,
-                duration_ms,
-                &self.services.lc,
-            );
+            // 合并所有累积的通知（不只是最后一个）
+            let all_notifications: Vec<String> = self.session_mgr.sessions[self.session_mgr.active]
+                .agent
+                .pre_done_bg_completions
+                .drain(..)
+                .collect();
+            let combined = all_notifications.join("\n");
             self.session_mgr.sessions[self.session_mgr.active]
                 .agent
-                .pending_bg_continuation = Some(display_notification);
+                .pending_bg_continuation = Some(combined);
 
             return (true, false, true);
         } else if !self.session_mgr.sessions[self.session_mgr.active]
@@ -311,23 +342,10 @@ impl App {
             && self.session_mgr.sessions[self.session_mgr.active].background_agents.is_empty()
         {
             // 竞态修复：agent 尚未 Done，但所有后台任务已完成。
-            // 暂存通知，待 Done 处理时检查此字段并设置 pending_bg_continuation。
+            // 暂存通知已在上方 push，待 Done 处理时检查此字段并设置 pending_bg_continuation。
             tracing::info!(
                 "background task completed before Done, buffering notification for deferred continuation"
             );
-            let display_notification = build_bg_display_notification(
-                &task_id,
-                &agent_name,
-                success,
-                &output,
-                tool_calls_count,
-                duration_ms,
-                &self.services.lc,
-            );
-            self.session_mgr.sessions[self.session_mgr.active]
-                .agent
-                .pre_done_bg_completions
-                .push(display_notification);
         }
 
         (true, false, false)
