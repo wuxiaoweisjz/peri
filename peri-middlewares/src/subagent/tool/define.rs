@@ -361,6 +361,16 @@ impl SubAgentTool {
             .as_ref()
             .map(|t| t.child_token())
             .unwrap_or_default();
+
+        tracing::info!(
+            has_parent_cancel = self.cancel.is_some(),
+            parent_cancelled = self
+                .cancel
+                .as_ref()
+                .map(|t| t.is_cancelled())
+                .unwrap_or(false),
+            "[CANCEL-TRACE] child_cancel created (fork path)"
+        );
         let _deregister_guard = if self.thread_store.is_some() {
             if let Some(ref register) = self.register_runtime {
                 register(
@@ -1129,6 +1139,17 @@ impl BaseTool for SubAgentTool {
             .as_ref()
             .map(|t| t.child_token())
             .unwrap_or_default();
+
+        tracing::info!(
+            agent_id = %agent_id,
+            has_parent_cancel = self.cancel.is_some(),
+            parent_cancelled = self
+                .cancel
+                .as_ref()
+                .map(|t| t.is_cancelled())
+                .unwrap_or(false),
+            "[CANCEL-TRACE] child_cancel created (sync path)"
+        );
         let _deregister_guard = if self.thread_store.is_some() {
             if let Some(ref register) = self.register_runtime {
                 register(
