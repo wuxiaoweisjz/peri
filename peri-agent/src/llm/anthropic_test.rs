@@ -976,3 +976,20 @@ fn test_system_blocks_cache_control_all_false_fallback() {
         "Last block must get fallback since no preceding cache_control"
     );
 }
+
+/// 单块已缓存：should keep the flag (no fallback needed, fallback wouldn't add duplicate anyway).
+#[test]
+fn test_system_blocks_single_cached_block_no_duplicate() {
+    let blocks = vec![cache::SystemPromptBlock {
+        text: "x".into(),
+        cache_control: true,
+    }];
+    let json_blocks = ChatAnthropic::build_system_blocks_json(&blocks);
+    assert!(
+        json_blocks[0]
+            .as_object()
+            .unwrap()
+            .contains_key("cache_control"),
+        "Single already-cached block should keep cache_control"
+    );
+}
