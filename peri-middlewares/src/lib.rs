@@ -34,6 +34,7 @@ pub mod lsp;
 pub mod mcp;
 pub mod middleware;
 pub mod plugin;
+pub mod process;
 pub use plugin::{
     AvailablePlugin, ClaudeSettings, CommandEntry, CommandProvider, CommandSource, InstallScope,
     InstalledPlugin, InstalledPlugins, KnownMarketplace, LoadedPlugin, LoaderError,
