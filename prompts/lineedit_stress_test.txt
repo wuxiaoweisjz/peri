@@ -8,6 +8,7 @@
 #   2. 整行替换不要用 start_word/end_word，只用 start_line
 #   3. 同 start_line 的插入+替换在 bottom-to-top 排序中顺序不确定，会相互覆盖
 #   4. start_word/end_word 替换范围是 start_word 起始 → end_word 结束，非"两者之间"——锚定前缀也会被替换掉
+#   5. 只设 start_word 不设 end_word → 替换范围默认到行尾。要替换行内某一段时必须同时提供 end_word
 #
 # 下面每一行都是故意设计的陷阱场景：
 
