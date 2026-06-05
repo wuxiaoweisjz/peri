@@ -528,7 +528,7 @@ impl ThreadStore for SqliteThreadStore {
         let rows: Vec<(String, Option<String>, String, String, String, i64, i64,
                        Option<String>, Option<String>, bool, String, Option<String>, Option<String>, String)> =
             sqlx::query_as(&format!(
-                "SELECT {THREAD_COLUMNS} FROM threads t WHERE t.parent_thread_id = ?1 ORDER BY t.created_at ASC"
+                "SELECT {THREAD_META_COLUMNS} FROM threads t WHERE t.parent_thread_id = ?1 ORDER BY t.created_at ASC"
             ))
             .bind(parent_id.as_str())
             .fetch_all(&self.pool)
@@ -567,7 +567,7 @@ impl ThreadStore for SqliteThreadStore {
                     SELECT t.* FROM threads t
                     INNER JOIN session_tree st ON t.parent_thread_id = st.id
                 )
-                SELECT {THREAD_COLUMNS} FROM session_tree t ORDER BY t.created_at ASC"
+                SELECT {THREAD_META_COLUMNS} FROM session_tree t ORDER BY t.created_at ASC"
         ))
         .bind(root_id.as_str())
         .fetch_all(&self.pool)

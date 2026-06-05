@@ -150,20 +150,20 @@ impl BaseTool for ReadFileTool {
 
         let content = match std::fs::metadata(&resolved) {
             Ok(meta) if meta.len() > MAX_FILE_SIZE => {
-                return Ok(format!(
+                return Err(format!(
                     "Error: File too large ({} bytes, max {} bytes). Use offset/limit to read portions.",
                     meta.len(),
                     MAX_FILE_SIZE
-                ));
+                ).into());
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(format!("Error: File not found at {file_path}"));
+                return Err(format!("Error: File not found at {file_path}").into());
             }
             Err(e) => return Err(e.into()),
             _ => match std::fs::read_to_string(&resolved) {
                 Ok(c) => c,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    return Ok(format!("Error: File not found at {file_path}"));
+                    return Err(format!("Error: File not found at {file_path}").into());
                 }
                 Err(e) => return Err(e.into()),
             },
@@ -171,11 +171,12 @@ impl BaseTool for ReadFileTool {
 
         let lines: Vec<&str> = content.split('\n').collect();
         if offset >= lines.len() {
-            return Ok(format!(
+            return Err(format!(
                 "Error: offset {} exceeds file length ({} lines)",
                 offset,
                 lines.len()
-            ));
+            )
+            .into());
         }
         let start = offset;
         let end = (start + limit).min(lines.len());

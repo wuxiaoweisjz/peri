@@ -195,6 +195,14 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 配置通过 `~/.peri/settings.json` 的 `env` 字段注入。
 
+## Beta 功能开关
+
+`settings.json` → `config.betas` 控制 beta 功能。所有字段默认 `false`。
+
+| 字段 | 说明 |
+|------|------|
+| `lineEdit` | 启用行号编辑模式——Edit 替换为 LineEdit（基于行号的精确编辑，支持 start_word/end_word 行内定位、多编辑从后往前应用、跨文件分组、best-effort 失败策略） |
+
 ## CLI 参数
 
 对齐 Claude Code 核心参数体系。所有 camelCase 参数同时支持 kebab-case 别名。clap 4 derive 解析。
