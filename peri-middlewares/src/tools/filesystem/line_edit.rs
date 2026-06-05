@@ -13,7 +13,7 @@ Caution: new_string replaces the target range entirely — do not duplicate cont
 Caution: start_word/end_word must be unique within the line. If the word matches multiple times (e.g., "foo" in "foo bar foo"), use a longer prefix (e.g., "foo bar") to disambiguate.
 Caution: when replacing an entire line, omit start_word/end_word and use only start_line. Using start_word/end_word for full-line replacement risks matching an unexpected position within the line and producing truncated output.
 Caution: the replacement range of start_word/end_word is from the START of start_word to the END of end_word — not the text between them. The anchor words themselves will be replaced, so keep them short and avoid including content you want to preserve.
-Caution: if start_word is set but end_word is omitted, the replacement range extends to the end of the line. Always provide end_word when you only want to replace a segment within the line."#;
+Caution: start_word and end_word must both be provided for word-level editing — missing end_word when start_word is set causes an error. To replace from start_word to end of line, set end_word to a word near the line tail."#;
 
 /// 单个编辑操作
 #[derive(Debug, Deserialize)]
@@ -280,6 +280,10 @@ fn apply_word_edit(
     let end_col = if let Some(word) = end_word {
         let pos = find_unique_word(&lines[end_idx], word)?;
         pos + word.len()
+    } else if start_word.is_some() {
+        return Err(
+            "start_word is set but end_word is missing. For word-level editing, both are required. To replace from start_word to end of line, set end_word to the last word of the line.".into(),
+        );
     } else {
         lines[end_idx].len()
     };
