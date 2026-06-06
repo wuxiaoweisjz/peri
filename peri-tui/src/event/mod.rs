@@ -43,6 +43,14 @@ pub async fn next_event(app: &mut App) -> Result<Option<Action>> {
         }
     }
 
+    // Rewind-pending state auto-expires after 2s
+    if let Some(since) = app.global_ui.rewind_pending_since {
+        if since.elapsed() >= std::time::Duration::from_secs(2) {
+            app.global_ui.rewind_pending_since = None;
+            return Ok(Some(Action::Redraw));
+        }
+    }
+
     // Mouse-availability probe: on first user input after startup, determine
     // whether the terminal supports mouse events.
     if app.global_ui.mouse_available.is_none() {

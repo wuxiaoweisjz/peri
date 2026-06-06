@@ -335,6 +335,16 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    // Rewind 待确认提示（第一次 ESC 后显示）
+    if let Some(since) = app.global_ui.rewind_pending_since {
+        if since.elapsed() < std::time::Duration::from_secs(2) {
+            left_spans.push(Span::styled(
+                " 再按 ESC 回滚对话 ",
+                Style::default().fg(theme::ACCENT),
+            ));
+        }
+    }
+
     // 右侧：快捷键提示（统一灰色显示）
     let key_style = Style::default()
         .fg(theme::MUTED)
@@ -412,6 +422,11 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
                     .status_bar_hints(lc)
             } else if app.global_panels.is_any_open() {
                 app.global_panels.status_bar_hints(lc)
+            } else if app.global_ui.rewind_pending_since.is_some() {
+                vec![
+                    ("Esc".to_string(), "回滚对话".to_string()),
+                    ("其他键".to_string(), lc.tr("key-cancel")),
+                ]
             } else if app.global_ui.quit_pending_since.is_some() {
                 vec![
                     ("Ctrl+C".to_string(), lc.tr("key-close")),
