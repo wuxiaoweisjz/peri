@@ -5,6 +5,7 @@ use crate::{
     ui::{
         markdown::parse_markdown_default,
         message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
+        theme,
     },
 };
 
@@ -77,6 +78,51 @@ impl MessagePipeline {
 
             let vm =
                 MessageViewModel::from_base_message_with_cwd(msg, &prev_ai_tool_calls, Some(cwd));
+
+            // Agent 工具：除了 SubAgentGroup（执行详情），
+            // 还插入 ToolBlock（发起调用的位置）
+            if let BaseMessage::Tool {
+                tool_call_id,
+                content,
+                is_error,
+                ..
+            } = msg
+            {
+                if let Some((_, tool_name, input)) = prev_ai_tool_calls
+                    .iter()
+                    .find(|(id, _, _)| id == tool_call_id)
+                {
+                    if tool_name == "Agent" {
+                        let display_name = tool_display::format_tool_name(tool_name);
+                        let args_display =
+                            tool_display::format_tool_args(tool_name, input, Some(cwd));
+                        let color = if *is_error {
+                            theme::ERROR
+                        } else {
+                            tool_color(tool_name)
+                        };
+                        let mut tb = MessageViewModel::ToolBlock {
+                            tool_name: tool_name.clone(),
+                            tool_call_id: tool_call_id.clone(),
+                            display_name,
+                            args_display,
+                            content: if *is_error {
+                                content.text_content()
+                            } else {
+                                String::new()
+                            },
+                            is_error: *is_error,
+                            collapsed: true,
+                            color,
+                            diff_lines: None,
+                            content_hash: 0,
+                        };
+                        tb.recompute_hash();
+                        vms.push(tb);
+                    }
+                }
+            }
+            MessageViewModel::from_base_message_with_cwd(msg, &prev_ai_tool_calls, Some(cwd));
 
             if let MessageViewModel::AssistantBubble { blocks, .. } = &vm {
                 let has_visible = blocks.iter().any(|b| match b {

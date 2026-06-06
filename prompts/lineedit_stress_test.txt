@@ -3,12 +3,11 @@
 # 用途：测试 LineEdit 工具在极端场景下的表现，暴露边界条件和唯一性匹配问题。
 # 用法：用 LineEdit 对此文件执行批量编辑，观察结果是否符合预期。
 #
-# 已知陷阱（已写入 line_edit.rs Caution）：
-#   1. start_word/end_word 必须在行内唯一——短词在 CJK 无空格文本中极易重复
-#   2. 整行替换不要用 start_word/end_word，只用 start_line
-#   3. 同 start_line 的插入+替换在 bottom-to-top 排序中顺序不确定，会相互覆盖
-#   4. start_word/end_word 替换范围是 start_word 起始 → end_word 结束，非"两者之间"——锚定前缀也会被替换掉
-#   5. 设了 start_word 不设 end_word → 报错。两者必须同时提供
+# 已知特性（LineEdit V2）：
+#   1. 使用 action 字段指定操作："replace" / "insert" / "delete"
+#   2. expected_lines 用于验证目标内容，不匹配时警告但继续执行
+#   3. 同一文件的多编辑必须不重叠，否则全部拒绝
+#   4. 所有编辑全有或全无——任一失败则全部不写入
 #
 # 下面每一行都是故意设计的陷阱场景：
 
