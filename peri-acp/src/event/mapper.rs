@@ -214,6 +214,7 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
         | ExecutorEvent::CompactError { .. }
         | ExecutorEvent::RewindCompleted { .. }
         | ExecutorEvent::BackgroundTaskCompleted(_)
+        | ExecutorEvent::BgToolStep { .. }
         | ExecutorEvent::LspDiagnostics { .. }
         | ExecutorEvent::AgentExecutionFailed { .. } => {
             vec![MappedEvent::tui_only()]

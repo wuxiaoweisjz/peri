@@ -63,6 +63,7 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             duration_ms: result.duration_ms,
             child_thread_id: result.child_thread_id,
         },
+        ExecutorEvent::BgToolStep { child_thread_id } => AgentEvent::BgToolStep { child_thread_id },
         ExecutorEvent::LspDiagnostics {
             errors,
             warnings,

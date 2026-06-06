@@ -151,4 +151,8 @@ pub enum AgentEvent {
         warnings: usize,
         files_with_errors: usize,
     },
+    /// 后台 agent 工具调用进度（轻量级，仅用于 bg_agent_bar 实时计数）
+    BgToolStep {
+        child_thread_id: String,
+    },
 }

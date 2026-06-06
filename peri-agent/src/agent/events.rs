@@ -173,6 +173,8 @@ pub enum AgentEvent {
     },
     /// Agent 执行失败（由 executor 在 agent.execute() 返回 Err 时发送）
     AgentExecutionFailed { message: String },
+    /// 后台 agent 工具调用进度通知（轻量级，仅用于 TUI bg_agent_bar 实时计数）
+    BgToolStep { child_thread_id: String },
 }
 
 /// 事件回调 trait（应用层实现）
