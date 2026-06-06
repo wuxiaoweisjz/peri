@@ -283,7 +283,7 @@ async fn test_反馈_含验证标签() {
 // ─── 12. CRLF 换行符保留 ────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_CRLF保留() {
+async fn test_crlf保留() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("f.txt"), "aaa\r\nbbb\r\nccc\r\n").unwrap();
     let tool = make_tool(&dir);
