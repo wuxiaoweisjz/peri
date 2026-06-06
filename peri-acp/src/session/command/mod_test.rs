@@ -65,17 +65,23 @@ impl AgentCommand for MockCommand {
 /// Mock EventSink，记录所有推送的事件。
 struct MockEventSink {
     events: Mutex<Vec<(String, String)>>,
+    push_done_count: Mutex<usize>,
 }
 
 impl MockEventSink {
     fn new() -> Self {
         Self {
             events: Mutex::new(Vec::new()),
+            push_done_count: Mutex::new(0),
         }
     }
 
     fn events(&self) -> Vec<(String, String)> {
         self.events.lock().unwrap().clone()
+    }
+
+    fn push_done_count(&self) -> usize {
+        *self.push_done_count.lock().unwrap()
     }
 }
 
@@ -89,7 +95,9 @@ impl crate::session::event_sink::EventSink for MockEventSink {
             .push((session_id.to_string(), json));
     }
 
-    async fn push_done(&self, _session_id: &str) {}
+    async fn push_done(&self, _session_id: &str) {
+        *self.push_done_count.lock().unwrap() += 1;
+    }
 }
 
 /// 构造最小 CommandContext。
@@ -343,4 +351,30 @@ fn test_clear_command_name_and_aliases() {
     assert!(aliases.contains(&"reset"), "应包含 reset 别名");
     assert_eq!(cmd.kind(), CommandKind::Immediate);
     assert!(!cmd.description().is_empty());
+}
+
+
+// ── push_done 验证测试 ──────────────────────────────────────────────────────
+// 对应 TRAP: CLAUDE.md issue_2026-05-29-immediate-command-missing-push-done
+
+/// 验证 MockEventSink 记录 push_done 调用
+#[test]
+fn test_mock_event_sink_push_done_counting() {
+    let sink = MockEventSink::new();
+    // 新创建的 sink push_done 计数为 0
+    assert_eq!(sink.push_done_count(), 0);
+}
+
+/// 验证 ClearCommand 执行后不自行调用 push_done（由 executor 负责）
+#[tokio::test]
+async fn test_clear_command_does_not_call_push_done_itself() {
+    let sink = Arc::new(MockEventSink::new());
+    let ctx = make_command_context(sink.clone());
+    let cmd = ClearCommand;
+
+    cmd.execute(ctx).await;
+
+    // ClearCommand 自身不调用 push_done
+    let count = sink.push_done_count();
+    assert_eq!(count, 0, "ClearCommand 自身不应调用 push_done，由 executor 负责");
 }

@@ -118,6 +118,30 @@ pub struct PluginOption {
     pub default: Option<serde_json::Value>,
 }
 
+fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::String(s) => Ok(Some(vec![s])),
+        serde_json::Value::Array(arr) => {
+            let strings: Result<Vec<String>, _> = arr
+                .into_iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => Ok(s),
+                    _ => Err(serde::de::Error::custom("skills element must be string")),
+                })
+                .collect();
+            Ok(Some(strings?))
+        }
+        _ => Err(serde::de::Error::custom(
+            "skills field must be string or array",
+        )),
+    }
+}
+
 /// 兼容 Claude Code 的插件清单
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginManifest {
@@ -130,6 +154,7 @@ pub struct PluginManifest {
     pub author: Option<PluginAuthor>,
     pub commands: Option<Vec<PluginCommandEntry>>,
     pub agents: Option<Vec<PluginAgent>>,
+    #[serde(default, deserialize_with = "deserialize_string_or_vec")]
     pub skills: Option<Vec<String>>,
     /// 插件 hooks 配置
     pub hooks: Option<HooksConfig>,

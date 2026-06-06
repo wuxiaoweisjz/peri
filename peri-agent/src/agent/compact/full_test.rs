@@ -397,3 +397,105 @@ async fn test_full_compact_whitespace_only_summary_rejected() {
     let result = full_compact(&msgs, &model, &config, "").await;
     assert!(result.is_err(), "纯空白摘要应被拒绝");
 }
+
+
+// ── 纯 ToolResult 消息测试 ──────────────────────────────────────────────────
+// 对应 TRAP: CLAUDE.md compact 不变量（compact 后必须以 Human 开头）
+
+/// 验证 preprocess_messages 对纯 Tool 消息的格式化
+#[test]
+fn test_preprocess_pure_tool_messages() {
+    let msgs = vec![
+        BaseMessage::tool_result("tc1", "echo done"),
+        BaseMessage::tool_result("tc2", "file content here"),
+        BaseMessage::tool_result("tc3", "grep result"),
+    ];
+    let result = preprocess_messages(&msgs, 2000);
+    // 纯 Tool 消息应被格式化为 [工具结果:id]
+    assert_eq!(result.len(), 3, "纯 Tool 消息不应丢失");
+    for (i, line) in result.iter().enumerate() {
+        let expected_prefix = format!("[工具结果:tc{}]", i + 1);
+        assert!(
+            line.starts_with(&expected_prefix),
+            "第{}条应格式化为 '{}'，实际: {}",
+            i + 1,
+            expected_prefix,
+            line
+        );
+    }
+}
+
+/// 验证纯 Tool 消息（无 Human/Ai）的 full_compact 调用 LLM，
+/// 返回后消息结构以 Human 开头。
+#[tokio::test]
+async fn test_full_compact_pure_tool_results() {
+    let msgs = vec![
+        BaseMessage::tool_result("tc1", "编译成功"),
+        BaseMessage::tool_result("tc2", "找到 3 个匹配"),
+        BaseMessage::tool_result("tc3", "文件不存在"),
+    ];
+    // MockModel 返回有效摘要
+    let model = MockBaseModel::new("## 摘要\n用户执行了若干命令");
+    let config = CompactConfig::default();
+
+    let result = full_compact(&msgs, &model, &config, "").await;
+    assert!(result.is_ok(), "纯 ToolResult full_compact 应成功");
+    let compact_result = result.unwrap();
+
+    // 摘要包含"此会话从之前的对话延续"（postprocess_summary 注入）
+    assert!(
+        compact_result.summary.contains("此会话从之前的对话延续"),
+        "摘要应包含续接提示"
+    );
+    // messages_used 应为 3
+    assert_eq!(compact_result.messages_used, 3, "应统计所有 Tool 消息");
+}
+
+/// 验证纯 Tool 消息 compact 后，LLM 请求体中包含 human 消息
+/// （通过 MockBaseModel 捕获请求来间接验证）
+#[tokio::test]
+async fn test_full_compact_pure_tool_results_request_contains_human() {
+    use std::sync::Mutex;
+    struct CapturingModel {
+        captured_msgs: Mutex<Vec<BaseMessage>>,
+    }
+    #[async_trait]
+    impl BaseModel for CapturingModel {
+        async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse> {
+            self.captured_msgs.lock().unwrap().extend(request.messages.clone());
+            Ok(LlmResponse {
+                message: BaseMessage::ai("## 摘要\n测试摘要"),
+                stop_reason: StopReason::EndTurn,
+                usage: None,
+                request_id: None,
+            })
+        }
+        fn provider_name(&self) -> &str {
+            "capture"
+        }
+        fn model_id(&self) -> &str {
+            "capture-model"
+        }
+    }
+
+    let msgs = vec![
+        BaseMessage::tool_result("t1", "output 1"),
+        BaseMessage::tool_result("t2", "output 2"),
+    ];
+    let model = CapturingModel {
+        captured_msgs: Mutex::new(vec![]),
+    };
+    let config = CompactConfig::default();
+
+    let result = full_compact(&msgs, &model, &config, "").await;
+    assert!(result.is_ok());
+
+    // 请求体中应包含 Human 消息（full_compact 构建的摘要 prompt）
+    let captured = model.captured_msgs.lock().unwrap();
+    let has_human = captured.iter().any(|m| matches!(m, BaseMessage::Human { .. }));
+    assert!(
+        has_human,
+        "LLM 请求体应包含 Human 消息（摘要 prompt），实际消息数: {}",
+        captured.len()
+    );
+}

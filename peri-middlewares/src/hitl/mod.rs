@@ -15,6 +15,9 @@ use crate::tool_search::core_tools::{
     TOOL_AGENT, TOOL_BASH, TOOL_EDIT, TOOL_FOLDER_OPS, TOOL_WEBFETCH, TOOL_WEBSEARCH, TOOL_WRITE,
 };
 
+/// broker.request 超时（秒）：防止挂起 broker 导致 before_tool 永久阻塞
+const BROKER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 pub mod auto_classifier;
 pub mod shared_mode;
 
@@ -88,6 +91,8 @@ pub struct HumanInTheLoopMiddleware {
     mode: Option<Arc<SharedPermissionMode>>,
     /// Auto 模式的 LLM 分类器，仅在 mode=Auto 时使用
     auto_classifier: Option<Arc<dyn AutoClassifier>>,
+    /// broker.request 超时，默认 300s；测试可设为短值
+    broker_timeout: std::time::Duration,
 }
 
 impl HumanInTheLoopMiddleware {
@@ -101,6 +106,7 @@ impl HumanInTheLoopMiddleware {
             requires_approval,
             mode: None,
             auto_classifier: None,
+            broker_timeout: BROKER_TIMEOUT,
         }
     }
 
@@ -111,6 +117,7 @@ impl HumanInTheLoopMiddleware {
             requires_approval: default_requires_approval,
             mode: None,
             auto_classifier: None,
+            broker_timeout: BROKER_TIMEOUT,
         }
     }
 
@@ -138,7 +145,14 @@ impl HumanInTheLoopMiddleware {
             requires_approval,
             mode: Some(mode),
             auto_classifier,
+            broker_timeout: BROKER_TIMEOUT,
         }
+    }
+
+    /// 设置 broker 审批超时（测试用）
+    pub fn with_broker_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.broker_timeout = timeout;
+        self
     }
 }
 
@@ -212,7 +226,15 @@ impl HumanInTheLoopMiddleware {
                 tool_input: tool_call.input.clone(),
             }],
         };
-        let response = broker.request(ctx).await;
+        let response = match tokio::time::timeout(self.broker_timeout, broker.request(ctx)).await {
+            Ok(resp) => resp,
+            Err(_elapsed) => {
+                return Err(AgentError::ToolRejected {
+                    tool: tool_call.name.clone(),
+                    reason: format!("审批超时 ({} 秒)", BROKER_TIMEOUT.as_secs()),
+                });
+            }
+        };
         let decision = match response {
             InteractionResponse::Decisions(mut d) => d.pop().unwrap_or(ApprovalDecision::Reject {
                 reason: "用户拒绝".to_string(),
@@ -316,7 +338,20 @@ impl HumanInTheLoopMiddleware {
             .collect();
 
         let ctx = InteractionContext::Approval { items };
-        let response = broker.request(ctx).await;
+        let response = match tokio::time::timeout(self.broker_timeout, broker.request(ctx)).await {
+            Ok(resp) => resp,
+            Err(_elapsed) => {
+                results.push(Err(AgentError::ToolRejected {
+                    tool: "batch_approval".to_string(),
+                    reason: format!("审批超时 ({} 秒)", BROKER_TIMEOUT.as_secs()),
+                }));
+                results.extend(calls.iter().skip(start_idx).map(|c| Err(AgentError::ToolRejected {
+                    tool: c.name.clone(),
+                    reason: "审批超时".to_string(),
+                })));
+                return results;
+            }
+        };
 
         let decisions = match response {
             InteractionResponse::Decisions(d) => d,

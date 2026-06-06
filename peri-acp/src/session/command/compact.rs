@@ -208,12 +208,14 @@ mod tests {
 
     struct MockEventSink {
         events: Mutex<Vec<(String, String)>>,
+        push_done_count: Mutex<usize>,
     }
 
     impl MockEventSink {
         fn new() -> Self {
             Self {
                 events: Mutex::new(Vec::new()),
+                push_done_count: Mutex::new(0),
             }
         }
 
@@ -232,7 +234,15 @@ mod tests {
                 .push((session_id.to_string(), json));
         }
 
-        async fn push_done(&self, _session_id: &str) {}
+        async fn push_done(&self, _session_id: &str) {
+            *self.push_done_count.lock().unwrap() += 1;
+        }
+    }
+
+    impl MockEventSink {
+        fn push_done_count(&self) -> usize {
+            *self.push_done_count.lock().unwrap()
+        }
     }
 
     fn make_ctx(
@@ -478,5 +488,20 @@ mod tests {
         assert!(aliases.contains(&"compress"), "应包含 compress 别名");
         assert_eq!(cmd.kind(), CommandKind::Immediate);
         assert!(!cmd.description().is_empty());
+    }
+
+    /// 验证 CompactCommand（Immediate）执行后 push_done 未被命令自身调用
+    /// （push_done 由 executor.rs 的 Immediate 路径负责调用，此处验证职责分离）
+    #[tokio::test]
+    async fn test_compact_command_does_not_call_push_done_itself() {
+        let sink = Arc::new(MockEventSink::new());
+        let ctx = make_ctx(sink.clone(), vec![]);
+        let cmd = CompactCommand;
+
+        let _result = cmd.execute(ctx).await;
+
+        // 空历史返回后，不调用 push_done（由 executor 负责）
+        let count = sink.push_done_count();
+        assert_eq!(count, 0, "CompactCommand 自身不应调用 push_done，由 executor 负责");
     }
 }
