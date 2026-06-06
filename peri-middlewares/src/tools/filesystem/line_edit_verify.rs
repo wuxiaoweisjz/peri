@@ -118,6 +118,7 @@ fn verify_brackets(content: &str) -> VerifyLevel {
     let mut in_string: Option<char> = None;
     let mut in_line_comment = false;
     let mut in_block_comment = false;
+    let mut prev_prev_char: Option<char> = None;
     let mut prev_char: Option<char> = None;
 
     for ch in content.chars() {
@@ -125,6 +126,7 @@ fn verify_brackets(content: &str) -> VerifyLevel {
             if ch == '\n' {
                 in_line_comment = false;
             }
+            prev_prev_char = prev_char;
             prev_char = Some(ch);
             continue;
         }
@@ -132,24 +134,30 @@ fn verify_brackets(content: &str) -> VerifyLevel {
             if prev_char == Some('*') && ch == '/' {
                 in_block_comment = false;
             }
+            prev_prev_char = prev_char;
             prev_char = Some(ch);
             continue;
         }
         if let Some(quote) = in_string {
             if ch == '\\' {
+                prev_prev_char = prev_char;
                 prev_char = Some(ch);
                 continue;
             }
             if ch == quote {
                 in_string = None;
             }
+            prev_prev_char = prev_char;
             prev_char = Some(ch);
             continue;
         }
 
         match ch {
             '\'' | '"' | '`' => in_string = Some(ch),
-            '/' if prev_char == Some('/') => in_line_comment = true,
+            // `://` 是 URL scheme 分隔符，不视为行注释
+            '/' if prev_char == Some('/') && prev_prev_char != Some(':') => {
+                in_line_comment = true;
+            }
             '*' if prev_char == Some('/') => in_block_comment = true,
             '{' => brace_depth += 1,
             '}' => brace_depth -= 1,
@@ -159,6 +167,7 @@ fn verify_brackets(content: &str) -> VerifyLevel {
             ']' => bracket_depth -= 1,
             _ => {}
         }
+        prev_prev_char = prev_char;
         prev_char = Some(ch);
     }
 
@@ -276,6 +285,22 @@ mod tests {
 
     #[test]
     fn test_括号平衡_忽略注释内() {
+        let result = verify_brackets("// { unbalanced\nfn main() {}");
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    #[test]
+    fn test_括号平衡_url不触发行注释() {
+        // https://example.com/path 中的 `://` 不应触发行注释模式
+        let result = verify_brackets(
+            "链接 [text](https://example.com/path) 和 [more](https://another.com/x/y)",
+        );
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    #[test]
+    fn test_括号平衡_真正注释仍触发() {
+        // `//` 不是 `://` 的一部分时，仍应触发注释
         let result = verify_brackets("// { unbalanced\nfn main() {}");
         assert_eq!(result, VerifyLevel::Ok);
     }
