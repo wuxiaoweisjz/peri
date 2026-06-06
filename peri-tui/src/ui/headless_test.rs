@@ -2087,6 +2087,7 @@ async fn test_background_task_notification() {
         agent_name: "code-reviewer".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        tool_count: 0,
     }];
 
     let notified = handle.render_notify.notified();
@@ -2154,11 +2155,13 @@ async fn test_background_task_status_bar() {
             agent_name: "reviewer-1".to_string(),
             instance_id: "test-inst-1".to_string(),
             started_at: std::time::Instant::now(),
+            tool_count: 0,
         },
         crate::app::RunningBgAgent {
             agent_name: "reviewer-2".to_string(),
             instance_id: "test-inst-2".to_string(),
             started_at: std::time::Instant::now(),
+            tool_count: 0,
         },
     ];
 
@@ -2514,6 +2517,7 @@ async fn test_diagnostic_bg_subagent_group_disappears() {
         agent_name: "code-reviewer".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        tool_count: 0,
     }];
     app.push_agent_event(AgentEvent::Done);
     app.process_pending_events();
@@ -2976,6 +2980,7 @@ async fn test_bg_completed_before_done_triggers_continuation() {
         agent_name: "code-reviewer".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        tool_count: 0,
     }];
 
     // 竞态：BackgroundTaskCompleted 先于 Done 到达
@@ -3022,11 +3027,13 @@ async fn test_multiple_bg_completed_before_done() {
             agent_name: "reviewer-1".to_string(),
             instance_id: "test-inst-1".to_string(),
             started_at: std::time::Instant::now(),
+            tool_count: 0,
         },
         crate::app::RunningBgAgent {
             agent_name: "reviewer-2".to_string(),
             instance_id: "test-inst-2".to_string(),
             started_at: std::time::Instant::now(),
+            tool_count: 0,
         },
     ];
 
@@ -3083,6 +3090,7 @@ async fn test_bg_completed_after_done_unchanged() {
         agent_name: "worker".to_string(),
         instance_id: "test-inst".to_string(),
         started_at: std::time::Instant::now(),
+        tool_count: 0,
     }];
 
     // 正常路径：Done 先到

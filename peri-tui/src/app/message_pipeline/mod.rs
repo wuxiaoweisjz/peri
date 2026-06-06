@@ -553,7 +553,8 @@ impl MessagePipeline {
             | AgentEvent::BackgroundTaskCompleted { .. }
             | AgentEvent::McpActionCompleted { .. }
             | AgentEvent::PluginActionCompleted { .. }
-            | AgentEvent::LspDiagnostics { .. } => {
+            | AgentEvent::LspDiagnostics { .. }
+            | AgentEvent::BgToolStep { .. } => {
                 vec![PipelineAction::None]
             }
         }
@@ -903,7 +904,123 @@ impl MessagePipeline {
         }
     }
 
-    /// 清空所有状态
+    /// BackgroundTaskCompleted 到达后，同步更新管线状态。
+    ///
+    /// 更新 subagent_stack 中匹配的后台 SubAgentState（标记 is_running=false、
+    /// push finalized VM 到 frozen_subagent_vms），同时更新 frozen_subagent_vms
+    /// 中已冻结但未完成的 SubAgentGroup VM（Done 先于 BG Complete 到达的情况）。
+    ///
+    pub fn notify_bg_completed(
+        &mut self,
+        instance_id: Option<&str>,
+        agent_name: &str,
+        output: &str,
+        success: bool,
+        steps: usize,
+    ) {
+        // 1. 更新 subagent_stack 中仍在运行的匹配 SubAgentState
+        //    优先按 instance_id 精确匹配，回退到 agent_name
+        let sub_pos = instance_id
+            .and_then(|iid| {
+                self.subagent_stack
+                    .iter()
+                    .position(|s| s.instance_id == iid && s.is_running && s.is_background)
+            })
+            .or_else(|| {
+                self.subagent_stack
+                    .iter()
+                    .position(|s| s.agent_id == agent_name && s.is_running && s.is_background)
+            });
+
+        if let Some(pos) = sub_pos {
+            let sub = &mut self.subagent_stack[pos];
+            sub.is_running = false;
+            // 仿照前台 agent 的 tool_end_internal 路径：
+            // 创建 finalized VM 并推入 frozen_subagent_vms，标记 finalized_vm
+            // 防止 drain_subagent_stack 重复创建。
+            let mut vm = MessageViewModel::SubAgentGroup {
+                agent_id: sub.agent_id.clone(),
+                task_preview: sub.task_preview.clone(),
+                total_steps: steps,
+                recent_messages: std::mem::take(&mut sub.recent_messages),
+                is_running: false,
+                collapsed: false,
+                final_result: Some(output.to_string()),
+                is_error: !success,
+                is_background: true,
+                bg_hash: sub.bg_hash.clone(),
+                batch_agents: Vec::new(),
+                instance_id: Some(sub.instance_id.clone()),
+                content_hash: 0,
+            };
+            vm.recompute_hash();
+            sub.finalized_vm = Some(vm.clone());
+            self.frozen_subagent_vms.push(vm);
+            tracing::debug!(
+                instance_id = %sub.instance_id,
+                agent_name = %agent_name,
+                "[bg-diag] notify_bg_completed: updated SubAgentState + pushed frozen VM"
+            );
+        }
+
+        // 2. 更新 frozen_subagent_vms 中已冻结但 is_running=true 的 VM
+        //    （Done → drain_subagent_stack 先于 BG Complete 的情况）
+        //    两遍匹配：优先 instance_id 精确匹配，回退 agent_name
+        if let Some(ref iid) = instance_id {
+            for vm in &mut self.frozen_subagent_vms {
+                match vm {
+                    MessageViewModel::SubAgentGroup {
+                        instance_id: Some(vm_iid),
+                        is_running,
+                        is_background,
+                        final_result,
+                        is_error,
+                        total_steps,
+                        ..
+                    } if *is_running && *is_background && vm_iid == *iid => {
+                        *is_running = false;
+                        *final_result = Some(output.to_string());
+                        *is_error = !success;
+                        *total_steps = steps;
+                        vm.recompute_hash();
+                        tracing::debug!(
+                            iid,
+                            "[bg-diag] notify_bg_completed: updated frozen VM by instance_id"
+                        );
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // 兜底：按 agent_name 匹配
+        for vm in &mut self.frozen_subagent_vms {
+            match vm {
+                MessageViewModel::SubAgentGroup {
+                    agent_id,
+                    is_running,
+                    is_background,
+                    final_result,
+                    is_error,
+                    total_steps,
+                    ..
+                } if *is_running && *is_background && agent_id == agent_name => {
+                    *is_running = false;
+                    *final_result = Some(output.to_string());
+                    *is_error = !success;
+                    *total_steps = steps;
+                    vm.recompute_hash();
+                    tracing::debug!(
+                        agent_name,
+                        "[bg-diag] notify_bg_completed: updated frozen VM by agent_name"
+                    );
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.completed.clear();
         self.current_ai_text.clear();
