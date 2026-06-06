@@ -201,7 +201,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 | 字段 | 说明 |
 |------|------|
-| `lineEdit` | 启用行号编辑模式——Edit 替换为 LineEdit（基于行号的精确编辑，action 枚举语义、expected_lines 内容验证、全有或全无原子性、上下文 diff 反馈） |
+| `lineEdit` | 启用行号编辑模式——Edit 替换为 LineEdit（unified diff 输入、5 级匹配回退、3 层验证、原子性写入） |
 
 ## CLI 参数
 

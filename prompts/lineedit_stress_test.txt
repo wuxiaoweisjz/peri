@@ -3,11 +3,11 @@
 # 用途：测试 LineEdit 工具在极端场景下的表现，暴露边界条件和唯一性匹配问题。
 # 用法：用 LineEdit 对此文件执行批量编辑，观察结果是否符合预期。
 #
-# 已知特性（LineEdit V2）：
-#   1. 使用 action 字段指定操作："replace" / "insert" / "delete"
-#   2. expected_lines 用于验证目标内容，不匹配时警告但继续执行
-#   3. 同一文件的多编辑必须不重叠，否则全部拒绝
-#   4. 所有编辑全有或全无——任一失败则全部不写入
+# 已知特性（LineEdit V3 Diff-Apply）：
+#   1. 使用标准 unified diff 格式（--- a/file / +++ b/file / @@ -L,N +L,N @@）
+#   2. 5 级匹配回退：精确→空白归一化→相似度→首尾锚定→行号兜底
+#   3. 3 层验证：Diff Sanity + 括号平衡 + Tree-sitter AST
+#   4. 原子性：所有 patch 全成功才写入
 #
 # 下面每一行都是故意设计的陷阱场景：
 
