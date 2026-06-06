@@ -11,7 +11,6 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(core::clear::ClearCommand));
     r.register(Box::new(core::help::HelpCommand));
     r.register(Box::new(core::history::HistoryCommand));
-    r.register(Box::new(core::doctor::DoctorCommand));
     r.register(Box::new(core::exit::ExitCommand));
     r.register(Box::new(core::gc::GcCommand));
 

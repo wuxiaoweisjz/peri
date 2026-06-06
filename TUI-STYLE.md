@@ -504,7 +504,6 @@ Spinner 下方附加 Tip 行：`⎿  Tip: ...`（MUTED 色）。
 | `/context` | 上下文窗口使用情况面板（StatusPanel Context tab） |
 | `/status` | 状态面板（含 Cost/Context 两个 tab） |
 | `/loop` | 循环执行 |
-| `/doctor` | 诊断配置完整性 |
 | `/effort <level>` | 查看或设置推理力度（low/medium/high/xhigh/max） |
 | `/rename [name]` | 查看或修改当前会话标题 |
 | `/help` | 列出所有命令 |

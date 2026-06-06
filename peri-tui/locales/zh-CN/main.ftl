@@ -29,7 +29,6 @@ command-plugin-description = 管理插件（浏览、安装、卸载）
 command-config-description = 全局配置（autocompact、语言、系统提示词覆盖）
 command-hooks-description = 查看 Hook 配置
 command-effort-description = 查看或设置推理力度（low/medium/high/xhigh/max）
-command-doctor-description = 诊断配置完整性
 command-rename-description = 查看或修改当前会话标题
 command-lang-description = 切换界面语言（如 /lang zh-CN）
 command-setup-description = 打开配置向导，设置 Provider
@@ -68,18 +67,6 @@ rename-current-title = 当前标题: { $title }
 rename-updated = 会话标题已更新为: { $name }
 rename-failed = 重命名失败: { $error }
 rename-untitled = （无标题）
-
-# doctor command
-doctor-header = Doctor 检查结果：
-doctor-settings-missing = Missing  无法获取 home 目录
-doctor-no-api-key = Missing  未设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY
-doctor-no-provider = No Provider  未配置任何 Provider
-doctor-provider-not-found = No Provider  active_provider_id '{ $id }' 未找到
-doctor-no-mcp = None  未配置 MCP 服务器
-doctor-mcp-not-init = None  .mcp.json 存在但 MCP 未初始化
-doctor-no-alias = No Alias  未配置任何模型别名
-doctor-no-alias-no-provider = No Alias  无活跃 Provider
-doctor-no-alias-not-configured = No Alias  未配置
 
 # lang command
 lang-switched = 语言已切换为 { $lang }
