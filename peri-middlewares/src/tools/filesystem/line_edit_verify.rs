@@ -120,6 +120,7 @@ fn verify_brackets(content: &str) -> VerifyLevel {
     let mut in_block_comment = false;
     let mut prev_prev_char: Option<char> = None;
     let mut prev_char: Option<char> = None;
+    let mut escape_next = false;
 
     for ch in content.chars() {
         if in_line_comment {
@@ -139,7 +140,14 @@ fn verify_brackets(content: &str) -> VerifyLevel {
             continue;
         }
         if let Some(quote) = in_string {
+            if escape_next {
+                escape_next = false;
+                prev_prev_char = prev_char;
+                prev_char = Some(ch);
+                continue;
+            }
             if ch == '\\' {
+                escape_next = true;
                 prev_prev_char = prev_char;
                 prev_char = Some(ch);
                 continue;
@@ -154,7 +162,6 @@ fn verify_brackets(content: &str) -> VerifyLevel {
 
         match ch {
             '\'' | '"' | '`' => in_string = Some(ch),
-            // `://` 是 URL scheme 分隔符，不视为行注释
             '/' if prev_char == Some('/') && prev_prev_char != Some(':') => {
                 in_line_comment = true;
             }
@@ -265,6 +272,10 @@ fn count_error_nodes(node: &tree_sitter::Node) -> usize {
 mod tests {
     use super::*;
 
+    // ═══════════════════════════════════════════════════════════════
+    // 基础测试（原有）
+    // ═══════════════════════════════════════════════════════════════
+
     #[test]
     fn test_括号平衡_ok() {
         let result = verify_brackets("fn main() { let x = [1, 2]; }");
@@ -291,7 +302,6 @@ mod tests {
 
     #[test]
     fn test_括号平衡_url不触发行注释() {
-        // https://example.com/path 中的 `://` 不应触发行注释模式
         let result = verify_brackets(
             "链接 [text](https://example.com/path) 和 [more](https://another.com/x/y)",
         );
@@ -300,7 +310,6 @@ mod tests {
 
     #[test]
     fn test_括号平衡_真正注释仍触发() {
-        // `//` 不是 `://` 的一部分时，仍应触发注释
         let result = verify_brackets("// { unbalanced\nfn main() {}");
         assert_eq!(result, VerifyLevel::Ok);
     }
@@ -340,17 +349,194 @@ mod tests {
     #[test]
     fn test_ast_rust_语法错误() {
         let old = "fn main() {}\n";
-        let new = "fn main( {}\n"; // 缺少 )
+        let new = "fn main( {}\n";
         let result = verify_ast("test.rs", old, new);
         assert!(matches!(result, VerifyLevel::Error(_)));
     }
 
     #[test]
     fn test_ast_rust_原有错误未增() {
-        // 两个文件都有语法错误，但未增加
         let old = "fn main( {}\n";
         let new = "fn main( {}\n";
         let result = verify_ast("test.rs", old, new);
         assert!(matches!(result, VerifyLevel::Warn(_)));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P0 — 字符串转义类（修复 escape_next 后的回归测试）
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn P0_转义引号不闭合字符串_不再误报() {
+        // "他说：\"你好\"" — \" 是转义引号，不应提前关闭字符串
+        let content = "let s = \"他说：\\\"你好\\\"\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok, "转义引号 \\\" 不应提前关闭字符串");
+    }
+
+    #[test]
+    fn P0_双反斜杠后引号正常关闭() {
+        // "C:\\Users\\" — \\ 后跟 " 正常关闭字符串
+        let content = "let p = \"C:\\\\Users\\\\\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok, "\\\\ 后的引号应正常关闭字符串");
+    }
+
+    #[test]
+    fn P0_转义引号内括号不计入平衡() {
+        // 字符串内 \"() 不应被当作代码括号
+        let content = "let s = \"\\\"()\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(
+            result,
+            VerifyLevel::Ok,
+            "转义引号后的括号在字符串内，不应计入"
+        );
+    }
+
+    #[test]
+    fn P0_转义反斜杠加引号不误关闭() {
+        // "\\\"" — \\ 字面反斜杠 + \" 转义引号
+        let content = "let s = \"\\\\\\\"\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok, "三重转义链 \\\\\\\" 应正确处理");
+    }
+
+    #[test]
+    fn P0_转义单引号在char字面量不误关闭() {
+        // '\'' — \' 是转义引号，char 字面量不提前关闭
+        let content = "let c = '\\''; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok, "char 字面量中的 \\' 不应提前关闭");
+    }
+
+    #[test]
+    fn P0_backtick内转义不误关闭() {
+        // `\`` — 转义的反引号不提前关闭
+        let content = "let s = `\\``; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok, "backtick 内的 \\` 不应提前关闭");
+    }
+
+    #[test]
+    fn P0_format宏内转义引号不误关() {
+        let content = "let s = \"format!(\\\"hello\\\")\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(
+            result,
+            VerifyLevel::Ok,
+            "format 宏内转义引号不应误关闭字符串"
+        );
+    }
+
+    #[test]
+    fn P0_真实不平衡在转义后仍被检出_缺花括号() {
+        // "a\"b"; {  — \" 不关字符串，{ 被正确计数，缺 }
+        let content = "let s = \"a\\\"b\"; {";
+        let result = verify_brackets(content);
+        assert!(
+            matches!(result, VerifyLevel::Error(_)),
+            "缺失的 }} 应被检出"
+        );
+    }
+
+    #[test]
+    fn P0_真实不平衡在转义后仍被检出_缺括号() {
+        // "a\"b"; (  — \" 不关字符串，( 被正确计数
+        let content = "let s = \"a\\\"b\"; (";
+        let result = verify_brackets(content);
+        assert!(matches!(result, VerifyLevel::Error(_)), "缺失的 ) 应被检出");
+    }
+
+    #[test]
+    fn P0_常见转义序列不影响括号() {
+        let content = "let s = \"\\n\\t\\r\\\\\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    #[test]
+    fn P0_字符串内括号完全忽略() {
+        let content = "let s = \"(){}\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P1 — 注释类
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn P1_行注释内所有括号忽略() {
+        let content = "// { [ ( unbalanced\nfn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    #[test]
+    fn P1_块注释内所有括号忽略() {
+        let content = "/* { [ ( */ fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    #[test]
+    fn P1_跨行块注释内括号忽略() {
+        let content = "/* \n { [ ( \n */ fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    #[test]
+    fn P1_行注释在块注释内() {
+        let content = "/* // */ fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P2 — URL / 特殊模式
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn P2_url在字符串内不触发注释() {
+        let content = "let url = \"https://example.com/path\"; fn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    #[test]
+    fn P2_除法后行注释不误判() {
+        let content = "let c = a / b; // {\nfn main() {}";
+        let result = verify_brackets(content);
+        assert_eq!(result, VerifyLevel::Ok);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P3 — 真实不平衡应被正确捕获
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn P3_缺少大括号检测() {
+        let content = "fn main() { let x = 1;";
+        let result = verify_brackets(content);
+        assert!(
+            matches!(result, VerifyLevel::Error(_)),
+            "缺失的 }} 应被检测到"
+        );
+    }
+
+    #[test]
+    fn P3_多出括号检测() {
+        let content = "fn main() { let x = (1 + 2)); }";
+        let result = verify_brackets(content);
+        assert!(matches!(result, VerifyLevel::Error(_)));
+    }
+
+    #[test]
+    fn P3_方括号无匹配检测() {
+        let content = "fn main() { let x = [1, 2; }";
+        let result = verify_brackets(content);
+        assert!(matches!(result, VerifyLevel::Error(_)));
     }
 }
