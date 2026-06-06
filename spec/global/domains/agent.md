@@ -742,6 +742,30 @@ launch_agent 工具调用
 **涉及文件:** peri-middlewares/src/subagent/skill_preload.rs
 **CLAUDE.md 链接:** false
 
+
+### issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing
+**摘要:** Agent 工具调用 3.35% 错误率——93% 源于 subagent_type 参数缺失
+**状态:** Fixed
+**归档日期:** 2026-06-06
+**关键词:** Agent 工具错误率, Ok-error 返回模式, subagent_type 参数缺失, tool_errors 分析器
+**问题本质:** Agent 工具将参数校验错误以 `Ok("Error: ...")` 返回而非 `Err()`，导致上层 `tool_errors` 分析器（依赖 `is_error=true` 筛选）完全遗漏这些错误，使 3.35% 错误率在监控系统中不可见。同时 LLM 频繁遗漏 `subagent_type` 参数，说明工具描述中参数要求的传达不够清晰。
+**通用模式:** 所有工具的参数校验/执行错误必须以 `Err()` 返回，`Ok("Error: ...")` 是反模式——它绕过 `is_error` 标记和上层错误分析器。新增工具时需显式检查所有错误路径的返回值类型。
+**技术决策:** 工具错误返回一致性是工具系统的隐含契约，需通过测试断言（`.unwrap_err()` vs `.unwrap()`）和 code review 双重保障。
+**涉及文件:** peri-middlewares/src/subagent/tool/define.rs, peri-middlewares/src/subagent/tool/execute_bg.rs, peri-middlewares/src/subagent/tool/execute_fork.rs, peri-middlewares/src/subagent/tool/tool_test.rs
+**CLAUDE.md 链接:** false
+
+### issue_2026-06-06-lineedit-prompt-stress-testing
+**摘要:** LineEdit 提示词压力测试方法论
+**状态:** Closed
+**归档日期:** 2026-06-06
+**关键词:** LineEdit 提示词, start_word/end_word 语义, 提示词压力测试, CJK 唯一性
+**问题本质:** LineEdit 工具的 `start_word`/`end_word` 语义复杂（替换范围含锚定词、行内必须唯一、缺 end_word 报错），LLM 在高频操作中容易犯参数错误。通过 6 轮迭代测试验证了工具提示词和用户提示词的稳定性。
+**通用模式:** 复杂工具描述需要经过 LLM 压力测试（构造陷阱样本、多次迭代、记录成功率）才能收敛到稳定版本。Caution 关键词（如"unique within the line"、"START of start_word to END of end_word"）是减少 LLM 误用的有效手段。CJK 无空格文本中，短词在不重复文本中永远不唯一，需跨越多个重复单元构造长前缀。
+**架构影响:** 工具描述质量直接影响 LLM 工具调用成功率，应视为工具实现的一部分而非附属文档。新增复杂工具时应有配套的压力测试流程。
+**技术决策:** 5 Caution 格式的工具提示词（Caution: 问题 → 后果）比传统描述性文本更有效
+**涉及文件:** peri-middlewares/src/tools/filesystem/line_edit.rs, prompts/lineedit_stress_test.txt
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

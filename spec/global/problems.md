@@ -1426,8 +1426,45 @@
 ### /split 移除
 - [移除 /split 多 session 分屏功能](domains/tui.md#issue_2026-06-01-remove-split-multi-session) — tui
 
+### Agent 工具错误率
+- [Agent 工具调用 3.35% 错误率——93% 源于 subagent_type 参数缺失](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
+### CJK 唯一性
+- [LineEdit 提示词压力测试方法论](domains/agent.md#issue_2026-06-06-lineedit-prompt-stress-testing) — agent
+
+### Config 面板
+- [Config 面板交互混乱，需整体重新设计](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
+### LineEdit 提示词
+- [LineEdit 提示词压力测试方法论](domains/agent.md#issue_2026-06-06-lineedit-prompt-stress-testing) — agent
+
+### Ok-error 返回模式
+- [Agent 工具调用 3.35% 错误率——93% 源于 subagent_type 参数缺失](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
+### start_word/end_word 语义
+- [LineEdit 提示词压力测试方法论](domains/agent.md#issue_2026-06-06-lineedit-prompt-stress-testing) — agent
+
+### subagent_type 参数缺失
+- [Agent 工具调用 3.35% 错误率——93% 源于 subagent_type 参数缺失](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
+### tool_errors 分析器
+- [Agent 工具调用 3.35% 错误率——93% 源于 subagent_type 参数缺失](domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing) — agent
+
+### 即时生效
+- [Config 面板交互混乱，需整体重新设计](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
+### 按键一致性
+- [Config 面板交互混乱，需整体重新设计](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
+### 提示词压力测试
+- [LineEdit 提示词压力测试方法论](domains/agent.md#issue_2026-06-06-lineedit-prompt-stress-testing) — agent
+
+### 编辑模式简化
+- [Config 面板交互混乱，需整体重新设计](domains/tui.md#issue_2026-05-24-config-panel-interaction-redesign) — tui
+
 ## 更新记录
 
+- 2026-06-06: 归档 3 个 issue（agent 2 + tui 1），新增 12 个关键词索引
 - 2026-06-03: 归档 3 个 issue（at-mention 搜索、rewind 消息丢失、多 session 分屏移除）
 - 2026-05-29: 归档 8 个 issue（agent 7 + plugin 1），新增 22 个关键词索引
 - 2026-05-27: 归档 16 个 issue（agent 4 + system-prompt 2 + compact 1 + tui 4 + mcp 1），新增 42 个关键词索引

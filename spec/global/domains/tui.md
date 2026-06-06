@@ -991,6 +991,19 @@ submit_message(text)
 - **技术决策:** 完全移除 TUI 多 session 并发分屏，保留 ACP 层 SessionStore 的多 session 存储（用于 /history 恢复）
 - **涉及文件:** peri-tui/src/command/session/split.rs, peri-tui/src/app/session_manager.rs, peri-tui/src/ui/main_ui/mod.rs
 
+
+### issue_2026-05-24-config-panel-interaction-redesign
+**摘要:** Config 面板交互混乱，需整体重新设计
+**状态:** Verified
+**归档日期:** 2026-06-06
+**关键词:** Config 面板, 即时生效, 编辑模式简化, 按键一致性
+**问题本质:** Config 面板采用 Browse/Edit 两步式操作模式，6 个字段混在一起，不同字段类型的按键行为不一致（Space 在布尔字段是切换、在文本字段是空格），用户无法预测按键效果。修复方案是从两步模式改为直编辑+即时生效模式。
+**通用模式:** 配置类面板应优先采用直编辑+即时生效模式（修改即保存），而非 Enter 确认后再保存的模态编辑。不同字段类型的按键操作应保持一致性——布尔/选择用 Space/方向键切换，文本用键盘输入+失焦保存。
+**架构影响:** 新增面板组件的交互设计应遵循：直编辑 > 多步模式、即时保存 > 确认保存、分组标签 > 平铺列表、按键行为按字段类型一致而非按当前模式变化。
+**技术决策:** 即改即走的配置交互模式
+**涉及文件:** peri-tui/src/app/config_panel.rs, peri-tui/src/ui/main_ui/panels/config.rs, peri-tui/src/app/panel_config.rs, peri-tui/src/command/core/config.rs
+**CLAUDE.md 链接:** false
+
 ---
 
 ## 相关 Feature

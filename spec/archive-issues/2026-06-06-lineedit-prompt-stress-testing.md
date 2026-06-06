@@ -1,3 +1,5 @@
+> 归档于 2026-06-06，原路径 spec/issues/2026-06-06-lineedit-prompt-stress-testing.md
+
 # LineEdit 提示词压力测试方法论
 
 **状态**：Closed
