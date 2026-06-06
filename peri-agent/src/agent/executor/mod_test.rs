@@ -1509,7 +1509,10 @@ async fn test_llm_error_cleanup_prepended_behavior() {
     // A4 修复后验证：cleanup_prepended 在错误路径上也执行，system 消息被正确清理
     let messages = state.messages();
     let system_count = messages.iter().filter(|m| m.is_system()).count();
-    let human_count = messages.iter().filter(|m| matches!(m, BaseMessage::Human { .. })).count();
+    let human_count = messages
+        .iter()
+        .filter(|m| matches!(m, BaseMessage::Human { .. }))
+        .count();
 
     assert_eq!(human_count, 1, "state 中应有 1 条 Human 消息");
     assert_eq!(

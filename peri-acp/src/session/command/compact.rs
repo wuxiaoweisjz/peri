@@ -502,6 +502,9 @@ mod tests {
 
         // 空历史返回后，不调用 push_done（由 executor 负责）
         let count = sink.push_done_count();
-        assert_eq!(count, 0, "CompactCommand 自身不应调用 push_done，由 executor 负责");
+        assert_eq!(
+            count, 0,
+            "CompactCommand 自身不应调用 push_done，由 executor 负责"
+        );
     }
 }

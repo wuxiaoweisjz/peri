@@ -395,11 +395,13 @@ async fn test_broker_hang_rejects_with_timeout() {
     // 修复后：broker_timeout 内置超时保护，应返回 ToolRejected 而非永久阻塞
     assert!(
         result.is_err(),
-        "挂起 broker 应触发超时拒绝，实际: {:?}", result
+        "挂起 broker 应触发超时拒绝，实际: {:?}",
+        result
     );
     let err = result.unwrap_err();
     assert!(
         matches!(&err, AgentError::ToolRejected { reason, .. } if reason.contains("超时")),
-        "拒绝应为 ToolRejected 且原因包含超时，实际: {:?}", err
+        "拒绝应为 ToolRejected 且原因包含超时，实际: {:?}",
+        err
     );
 }

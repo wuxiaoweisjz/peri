@@ -345,10 +345,12 @@ impl HumanInTheLoopMiddleware {
                     tool: "batch_approval".to_string(),
                     reason: format!("审批超时 ({} 秒)", BROKER_TIMEOUT.as_secs()),
                 }));
-                results.extend(calls.iter().skip(start_idx).map(|c| Err(AgentError::ToolRejected {
-                    tool: c.name.clone(),
-                    reason: "审批超时".to_string(),
-                })));
+                results.extend(calls.iter().skip(start_idx).map(|c| {
+                    Err(AgentError::ToolRejected {
+                        tool: c.name.clone(),
+                        reason: "审批超时".to_string(),
+                    })
+                }));
                 return results;
             }
         };

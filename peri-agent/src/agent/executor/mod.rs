@@ -304,10 +304,14 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             try_break!(self.chain.run_before_model(state).await, loop_error);
 
             let reasoning = try_break!(
-                self::llm_step::call_llm(self, state, &tool_refs, step, &cancel).await, loop_error
+                self::llm_step::call_llm(self, state, &tool_refs, step, &cancel).await,
+                loop_error
             );
 
-            try_break!(self.chain.run_after_model(state, &reasoning).await, loop_error);
+            try_break!(
+                self.chain.run_after_model(state, &reasoning).await,
+                loop_error
+            );
 
             if reasoning.needs_tool_call() {
                 // 工具分发
@@ -320,7 +324,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         &cancel,
                         &mut consecutive_failures,
                     )
-                    .await, loop_error
+                    .await,
+                    loop_error
                 );
                 all_tool_calls.extend(step_calls);
 
@@ -344,7 +349,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                         &mut snapshot_anchor,
                         step,
                     )
-                    .await, loop_error
+                    .await,
+                    loop_error
                 );
                 final_result = Some(output);
                 break;

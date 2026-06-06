@@ -398,7 +398,6 @@ async fn test_full_compact_whitespace_only_summary_rejected() {
     assert!(result.is_err(), "纯空白摘要应被拒绝");
 }
 
-
 // ── 纯 ToolResult 消息测试 ──────────────────────────────────────────────────
 // 对应 TRAP: CLAUDE.md compact 不变量（compact 后必须以 Human 开头）
 
@@ -462,7 +461,10 @@ async fn test_full_compact_pure_tool_results_request_contains_human() {
     #[async_trait]
     impl BaseModel for CapturingModel {
         async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse> {
-            self.captured_msgs.lock().unwrap().extend(request.messages.clone());
+            self.captured_msgs
+                .lock()
+                .unwrap()
+                .extend(request.messages.clone());
             Ok(LlmResponse {
                 message: BaseMessage::ai("## 摘要\n测试摘要"),
                 stop_reason: StopReason::EndTurn,
@@ -492,7 +494,9 @@ async fn test_full_compact_pure_tool_results_request_contains_human() {
 
     // 请求体中应包含 Human 消息（full_compact 构建的摘要 prompt）
     let captured = model.captured_msgs.lock().unwrap();
-    let has_human = captured.iter().any(|m| matches!(m, BaseMessage::Human { .. }));
+    let has_human = captured
+        .iter()
+        .any(|m| matches!(m, BaseMessage::Human { .. }));
     assert!(
         has_human,
         "LLM 请求体应包含 Human 消息（摘要 prompt），实际消息数: {}",

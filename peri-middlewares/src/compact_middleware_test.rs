@@ -394,7 +394,11 @@ async fn test_full_compact_cancel_restores_own_messages() {
 
     // 模拟 do_full_compact 的 restore 逻辑：drain → cancel → extend
     let own_messages: Vec<BaseMessage> = state.messages_mut().drain(0..).collect();
-    assert_eq!(own_messages.len(), orig_count, "drain 后 own_messages 数应与原消息一致");
+    assert_eq!(
+        own_messages.len(),
+        orig_count,
+        "drain 后 own_messages 数应与原消息一致"
+    );
     assert_eq!(state.messages().len(), 0, "drain 后 state 应为空");
 
     // 回滚
@@ -464,7 +468,11 @@ async fn test_full_compact_error_restores_own_messages() {
     state.messages_mut().extend(own_messages);
 
     // 消息数不变
-    assert_eq!(state.messages().len(), orig_count, "LLM 失败回滚后消息数应与原一致");
+    assert_eq!(
+        state.messages().len(),
+        orig_count,
+        "LLM 失败回滚后消息数应与原一致"
+    );
 
     // 验证 tool 消息完整性：每个 tool_use 有配对 tool_result
     let mut ai_tool_ids: Vec<String> = Vec::new();
@@ -485,6 +493,9 @@ async fn test_full_compact_error_restores_own_messages() {
         "回滚后 tool_use 数量应与 tool_result 一致"
     );
     for id in &ai_tool_ids {
-        assert!(tool_result_ids.contains(id), "tool_use {id} 缺少配对 tool_result");
+        assert!(
+            tool_result_ids.contains(id),
+            "tool_use {id} 缺少配对 tool_result"
+        );
     }
 }

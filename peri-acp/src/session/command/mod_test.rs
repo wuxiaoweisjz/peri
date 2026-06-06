@@ -353,7 +353,6 @@ fn test_clear_command_name_and_aliases() {
     assert!(!cmd.description().is_empty());
 }
 
-
 // ── push_done 验证测试 ──────────────────────────────────────────────────────
 // 对应 TRAP: CLAUDE.md issue_2026-05-29-immediate-command-missing-push-done
 
@@ -376,5 +375,8 @@ async fn test_clear_command_does_not_call_push_done_itself() {
 
     // ClearCommand 自身不调用 push_done
     let count = sink.push_done_count();
-    assert_eq!(count, 0, "ClearCommand 自身不应调用 push_done，由 executor 负责");
+    assert_eq!(
+        count, 0,
+        "ClearCommand 自身不应调用 push_done，由 executor 负责"
+    );
 }

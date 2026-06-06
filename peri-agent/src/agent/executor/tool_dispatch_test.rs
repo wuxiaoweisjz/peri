@@ -815,12 +815,8 @@ async fn test_cancel_during_execution_partial_completion() {
     let agent = ReActAgent::new(MixedSpeedLLM)
         .max_iterations(5)
         .register_tool(Box::new(FastTool))
-        .register_tool(Box::new(SlowTool {
-            name_str: "slow_b",
-        }))
-        .register_tool(Box::new(SlowTool {
-            name_str: "slow_c",
-        }));
+        .register_tool(Box::new(SlowTool { name_str: "slow_b" }))
+        .register_tool(Box::new(SlowTool { name_str: "slow_c" }));
 
     // 200ms 后触发取消：fast_tool 已完成，slow_b/slow_c 还在执行
     let token = cancel.clone();
@@ -989,18 +985,16 @@ async fn test_after_tool_error_still_writes_result() {
 
     // tool_a 和 tool_b 的 invoke 都成功了，tool_result 应均为成功
     for id in &["id1", "id2"] {
-        let tool_msg = state.messages().iter().find(|m| {
-            matches!(m, BaseMessage::Tool { tool_call_id, .. } if tool_call_id.as_str() == *id)
-        });
+        let tool_msg = state.messages().iter().find(
+            |m| matches!(m, BaseMessage::Tool { tool_call_id, .. } if tool_call_id.as_str() == *id),
+        );
         assert!(
             tool_msg.is_some(),
             "tool id={} 应有 tool_result（after_tool 错误不丢失 invoke 成功的结果）",
             id
         );
         if let Some(BaseMessage::Tool {
-            is_error,
-            content,
-            ..
+            is_error, content, ..
         }) = tool_msg
         {
             assert!(
@@ -1124,7 +1118,10 @@ async fn test_all_concurrent_tools_fail() {
         error_results.len(),
         3,
         "应有 3 个 tool_result，实际: {:?}",
-        error_results.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>()
+        error_results
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>()
     );
     for (id, is_error) in &error_results {
         assert!(
