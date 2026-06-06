@@ -1,3 +1,7 @@
+use super::line_edit_diff::*;
+use super::line_edit_match::*;
+use super::line_edit_verify::*;
+
 use peri_agent::tools::BaseTool;
 use serde::Deserialize;
 use serde_json::Value;

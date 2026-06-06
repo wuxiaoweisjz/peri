@@ -5,6 +5,9 @@ pub mod grep;
 pub(crate) mod grep_args;
 pub(crate) mod grep_format;
 pub mod line_edit;
+pub mod line_edit_diff;
+pub mod line_edit_match;
+pub mod line_edit_verify;
 pub mod read;
 pub mod write;
 
