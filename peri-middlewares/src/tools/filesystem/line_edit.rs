@@ -44,6 +44,16 @@ struct MatchedHunk {
     match_result: MatchResult,
 }
 
+/// 单个 hunk 应用后的位置信息
+struct HunkDetail {
+    /// hunk 应用后的起始行号（1-based）
+    new_start: usize,
+    /// hunk 应用后的结束行号（1-based，含）
+    new_end: usize,
+    /// 上下文行（hunk 范围前后各 3 行，来自修改后的文件）
+    context_lines: Vec<String>,
+}
+
 /// 文件应用结果
 struct FileResult {
     file_path: String,
@@ -51,6 +61,8 @@ struct FileResult {
     additions: usize,
     deletions: usize,
     verify_result: VerifyResult,
+    /// 每个 hunk 应用后的位置信息和上下文
+    hunk_details: Vec<HunkDetail>,
 }
 
 /// LineEdit 工具 — 基于 unified diff 的精确编辑
@@ -213,6 +225,8 @@ impl BaseTool for LineEditTool {
             // 统计
             let mut total_additions = 0usize;
             let mut total_deletions = 0usize;
+            // 收集每个 hunk 应用信息: (orig_line_idx, old_count, new_count)
+            let mut hunk_apply_info: Vec<(usize, usize, usize)> = Vec::new();
 
             // 按匹配位置从后往前排序（稳定排序保持同位置 hunk 的原始顺序）
             let mut sorted_matched: Vec<&MatchedHunk> = matched.iter().collect();
@@ -276,10 +290,44 @@ impl BaseTool for LineEditTool {
                 }
 
                 // splice 替换
+                let new_count = replacement_lines.len();
                 lines.splice(line_idx..end_idx, replacement_lines);
+                hunk_apply_info.push((line_idx, old_count, new_count));
             }
 
             // 验证
+            // 计算每个 hunk 在修改后文件中的新行号
+            let mut sorted_info = hunk_apply_info.clone();
+            sorted_info.sort_by_key(|(line_idx, _, _)| *line_idx);
+
+            let mut detail_map: std::collections::HashMap<usize, (usize, usize)> =
+                std::collections::HashMap::new();
+            let mut cumulative_offset: isize = 0;
+            for (orig_idx, old_count, new_count) in &sorted_info {
+                let new_start = (*orig_idx as isize + cumulative_offset + 1) as usize;
+                let new_end = new_start + new_count - 1;
+                detail_map.insert(*orig_idx, (new_start, new_end));
+                cumulative_offset += *new_count as isize - *old_count as isize;
+            }
+
+            const CONTEXT_LINES: usize = 3;
+            let hunk_details: Vec<HunkDetail> = sorted_info
+                .iter()
+                .map(|(orig_idx, _, _)| {
+                    let (new_start, new_end) = detail_map[orig_idx];
+                    let ctx_start = new_start.saturating_sub(CONTEXT_LINES + 1);
+                    let ctx_end = (new_end + CONTEXT_LINES).min(lines.len());
+                    let context_lines: Vec<String> = (ctx_start..ctx_end)
+                        .map(|i| lines.get(i).cloned().unwrap_or_default())
+                        .collect();
+                    HunkDetail {
+                        new_start,
+                        new_end,
+                        context_lines,
+                    }
+                })
+                .collect();
+
             let new_content = if lines.is_empty() {
                 String::new()
             } else {
@@ -318,6 +366,7 @@ impl BaseTool for LineEditTool {
                 additions: total_additions,
                 deletions: total_deletions,
                 verify_result,
+                hunk_details,
             });
         }
 
@@ -353,6 +402,8 @@ fn format_results(results: &[FileResult]) -> String {
     let mut total_hunks = 0usize;
     let mut total_additions = 0usize;
     let mut total_deletions = 0usize;
+    const MAX_OUTPUT_CHARS: usize = 2000;
+    let mut output_chars = 0usize;
 
     for r in results {
         let icon = if r.verify_result.has_error() {
@@ -371,16 +422,42 @@ fn format_results(results: &[FileResult]) -> String {
             r.verify_result.format_tags()
         ));
         output.push(format!(
-            "  {} hunks applied ({} additions, {} deletions)",
+            "  {} hunks applied ({}+, {}-)",
             r.hunk_count, r.additions, r.deletions
         ));
+
+        for (i, detail) in r.hunk_details.iter().enumerate() {
+            if output_chars >= MAX_OUTPUT_CHARS {
+                let remaining = r.hunk_details.len() - i;
+                if remaining > 0 {
+                    output.push(format!("  ... {} more hunks (output truncated)", remaining));
+                }
+                break;
+            }
+
+            let range = if detail.new_start == detail.new_end {
+                format!("L{}", detail.new_start)
+            } else {
+                format!("L{}-{}", detail.new_start, detail.new_end)
+            };
+
+            let first_new_line = detail
+                .context_lines
+                .iter()
+                .find(|l| !l.trim().is_empty())
+                .map(|l| truncate_str(l.trim(), 60))
+                .unwrap_or_default();
+
+            let line = format!("  @@ {}: {}", range, first_new_line);
+            output_chars += line.chars().count();
+            output.push(line);
+        }
 
         total_hunks += r.hunk_count;
         total_additions += r.additions;
         total_deletions += r.deletions;
     }
 
-    // 汇总行
     output.push(format!(
         "\n{} files, {} hunks ({}+, {}-)",
         results.len(),
