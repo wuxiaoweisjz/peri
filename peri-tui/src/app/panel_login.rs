@@ -74,7 +74,7 @@ impl App {
         else {
             return;
         };
-        let edit_name = panel.buf_name.clone();
+        let edit_name = panel.field_name.value();
         let is_new = matches!(panel.mode, login_panel::LoginPanelMode::New);
         let Some(cfg) = self.services.peri_config.as_mut() else {
             return;

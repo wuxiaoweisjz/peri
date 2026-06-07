@@ -150,24 +150,20 @@ impl PanelComponent for LoginPanel {
                     } => {
                         if is_type_field {
                             self.cycle_type();
-                        } else if let Some((buf, cursor)) = self.active_field() {
-                            crate::app::handle_edit_key(
-                                buf,
-                                cursor,
-                                Input {
-                                    key: Key::Char(' '),
-                                    ctrl: false,
-                                    alt: false,
-                                    shift: false,
-                                },
-                            );
+                        } else if let Some(field) = self.active_field() {
+                            field.input(Input {
+                                key: Key::Char(' '),
+                                ctrl: false,
+                                alt: false,
+                                shift: false,
+                            });
                         }
                         EventResult::Consumed
                     }
                     Input {
                         key: Key::Enter, ..
                     } => {
-                        let edit_name = self.buf_name.clone();
+                        let edit_name = self.field_name.value();
                         let is_new = self.mode == LoginPanelMode::New;
                         let Some(cfg) = ctx.services.peri_config.as_mut() else {
                             return EventResult::Consumed;
@@ -214,8 +210,8 @@ impl PanelComponent for LoginPanel {
                     }
                     _ => {
                         if !is_type_field {
-                            if let Some((buf, cursor)) = self.active_field() {
-                                crate::app::handle_edit_key(buf, cursor, input);
+                            if let Some(field) = self.active_field() {
+                                field.input(input);
                             }
                         }
                         EventResult::Consumed

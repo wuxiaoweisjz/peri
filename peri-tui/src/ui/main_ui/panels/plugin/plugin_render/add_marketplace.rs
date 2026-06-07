@@ -21,7 +21,6 @@ pub(crate) fn render_add_marketplace(
     area: Rect,
 ) {
     let input_value = panel.add_marketplace_input.value();
-    let display_text = panel.add_marketplace_input.display_text('\u{2022}');
 
     let inner = BorderedPanel::new(Span::styled(
         " Add Marketplace ",
@@ -58,12 +57,12 @@ pub(crate) fn render_add_marketplace(
     for (example, desc) in &examples {
         if desc.is_empty() {
             lines.push(Line::from(vec![
-                Span::styled("   \u{00B7} ", Style::default().fg(theme::MUTED)),
+                Span::styled("   · ", Style::default().fg(theme::MUTED)),
                 Span::styled(*example, Style::default().fg(theme::MUTED)),
             ]));
         } else {
             lines.push(Line::from(vec![
-                Span::styled("   \u{00B7} ", Style::default().fg(theme::MUTED)),
+                Span::styled("   · ", Style::default().fg(theme::MUTED)),
                 Span::styled(*example, Style::default().fg(theme::MUTED)),
                 Span::styled(format!(" ({})", desc), Style::default().fg(theme::MUTED)),
             ]));
@@ -75,13 +74,13 @@ pub(crate) fn render_add_marketplace(
     let input_line = if input_value.is_empty() {
         Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled("\u{2588}", Style::default().fg(theme::TEXT)),
+            Span::styled("█", Style::default().fg(theme::TEXT)),
         ])
     } else {
         Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled(display_text, Style::default().fg(theme::TEXT)),
-            Span::styled("\u{2588}", Style::default().fg(theme::TEXT)),
+            Span::styled(input_value, Style::default().fg(theme::TEXT)),
+            Span::styled("█", Style::default().fg(theme::TEXT)),
         ])
     };
     lines.push(input_line);
@@ -95,7 +94,7 @@ pub(crate) fn render_add_marketplace(
                 .fg(theme::MUTED)
                 .add_modifier(Modifier::ITALIC),
         ),
-        Span::styled(" \u{00B7} ", Style::default().fg(theme::MUTED)),
+        Span::styled(" · ", Style::default().fg(theme::MUTED)),
         Span::styled(
             "Esc to cancel",
             Style::default()

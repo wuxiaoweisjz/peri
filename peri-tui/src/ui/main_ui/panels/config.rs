@@ -45,7 +45,12 @@ fn lang_display(code: &str) -> &str {
 }
 
 /// /config 面板渲染（单一直接编辑模式）
-pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut App, area: Rect) {
+pub(crate) fn render_config_panel(
+    f: &mut Frame,
+    panel: &mut ConfigPanel,
+    app: &mut App,
+    area: Rect,
+) {
     let lc = &app.services.lc;
 
     let title = lc.tr("config-panel-title");
@@ -62,6 +67,7 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
     app.session_mgr.current_mut().ui.panel_area = Some(inner);
 
     let mut lines: Vec<Line> = Vec::new();
+    let mut active_textarea_overlay: Option<u16> = None;
 
     for row in 0..ROW_COUNT {
         match row {
@@ -256,28 +262,21 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                     _ => "",
                 };
 
-                let (buf, cursor) = match row {
-                    ROW_THRESHOLD => (&panel.buf_threshold, panel.cur_threshold),
-                    ROW_PERSONA => (&panel.buf_persona, panel.cur_persona),
-                    ROW_TONE => (&panel.buf_tone, panel.cur_tone),
+                let field = match row {
+                    ROW_THRESHOLD => &panel.field_threshold,
+                    ROW_PERSONA => &panel.field_persona,
+                    ROW_TONE => &panel.field_tone,
                     _ => unreachable!(),
                 };
 
                 let label_style = active_or_text(is_active);
-                let value_style = if is_active {
-                    Style::default().fg(theme::THINKING)
-                } else {
-                    Style::default().fg(theme::TEXT)
-                };
+                let value_style = Style::default().fg(theme::TEXT);
                 let desc_style = Style::default().fg(theme::MUTED);
 
-                let value_display = if is_active {
-                    let (before, after) = crate::app::edit_display_parts(buf, cursor);
-                    format!("{}█{}", before, after)
-                } else if buf.is_empty() {
+                let value_display = if !is_active && field.is_empty() {
                     "-".to_string()
                 } else {
-                    buf.to_string()
+                    field.value()
                 };
 
                 lines.push(Line::from(vec![
@@ -286,6 +285,12 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                     Span::styled(" ", Style::default()),
                     Span::styled(value_display, value_style),
                 ]));
+
+                // 记录活跃 textarea 的行索引，用于 overlay 渲染
+                if is_active {
+                    active_textarea_overlay = Some(lines.len() as u16 - 1);
+                }
+
                 lines.push(Line::from(Span::styled(
                     format!("      {}", lc.tr(desc_key)),
                     desc_style,
@@ -297,6 +302,24 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
 
     lines.truncate(inner.height as usize);
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
+
+    // overlay 活跃 textarea
+    if let Some(line_idx) = active_textarea_overlay {
+        if line_idx < inner.height {
+            let label_width: u16 = 17; // "  " + 14-char label + " "
+            let value_area = Rect {
+                x: inner.x + label_width,
+                y: inner.y + line_idx,
+                width: inner.width.saturating_sub(label_width),
+                height: 1,
+            };
+            if value_area.width > 0 {
+                if let Some(field) = panel.active_field() {
+                    field.render(f, value_area);
+                }
+            }
+        }
+    }
 }
 
 fn active_or_text(is_active: bool) -> Style {

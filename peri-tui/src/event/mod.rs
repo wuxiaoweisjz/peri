@@ -785,7 +785,6 @@ async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Action>> {
 // ── OAuth prompt ────────────────────────────────────────────────────────────
 
 fn handle_oauth_prompt(app: &mut App, input: Input) {
-    use crate::app::handle_edit_key;
     let prompt = match app.global_ui.oauth_prompt.as_mut() {
         Some(p) => p,
         None => return,
@@ -823,7 +822,7 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
         }
         _ => {
             prompt.error_message = None;
-            handle_edit_key(&mut prompt.input, &mut prompt.cursor, input);
+            prompt.field.input(input);
         }
     }
 }

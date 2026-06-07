@@ -101,7 +101,10 @@ mod interaction;
 pub use interaction::InteractionPrompt;
 
 mod edit_utils;
-pub use edit_utils::{build_textarea, edit_display_parts, ensure_cursor_visible, handle_edit_key};
+pub use edit_utils::{build_textarea, ensure_cursor_visible};
+
+mod field_textarea;
+pub use field_textarea::FieldTextarea;
 
 use crate::acp_client::{AcpNotification, AcpTuiClient};
 use peri_agent::messages::BaseMessage;
@@ -630,8 +633,7 @@ impl App {
             .as_mut()
         {
             let q = p.current();
-            q.custom_input.push_str(text);
-            q.custom_cursor += text.chars().count();
+            q.custom_input.insert_text(text);
             q.in_custom_input = true;
         }
     }

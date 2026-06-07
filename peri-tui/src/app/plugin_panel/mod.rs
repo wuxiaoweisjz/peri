@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashSet};
 
-use peri_widgets::InputState;
+use super::FieldTextarea;
 use ratatui::{layout::Rect, Frame};
 use tui_textarea::Input;
 
@@ -28,7 +28,7 @@ impl PluginPanel {
             detail_index: None,
             detail_cursor: 0,
             discover_plugins: Vec::new(),
-            discover_search: InputState::new(),
+            discover_search: FieldTextarea::single_line(),
             discover_searching: false,
             discover_list: PanelList::new(),
             discover_loading: false,
@@ -39,7 +39,7 @@ impl PluginPanel {
             marketplace_list: PanelList::new(),
             marketplace_confirm_delete: None,
             marketplace_updating: HashSet::new(),
-            add_marketplace_input: InputState::new(),
+            add_marketplace_input: FieldTextarea::single_line(),
             add_marketplace_active: false,
             installing: HashSet::new(),
             uninstalling: HashSet::new(),
@@ -229,15 +229,11 @@ impl PanelComponent for PluginPanel {
 
     fn handle_paste(&mut self, text: &str, _ctx: &mut PanelContext<'_>) -> EventResult {
         if self.add_marketplace_active {
-            for ch in text.chars() {
-                self.add_marketplace_input.insert(ch);
-            }
+            self.add_marketplace_input.insert_text(text);
             return EventResult::Consumed;
         }
         if self.discover_searching {
-            for ch in text.chars() {
-                self.discover_search.insert(ch);
-            }
+            self.discover_search.insert_text(text);
             self.discover_list.set_items(
                 self.discover_filtered_plugins()
                     .into_iter()

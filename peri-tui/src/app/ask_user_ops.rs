@@ -90,7 +90,7 @@ impl App {
         {
             let q = p.current();
             if q.in_custom_input {
-                crate::app::handle_edit_key(&mut q.custom_input, &mut q.custom_cursor, input);
+                q.custom_input.input(input);
             }
         }
     }
@@ -113,7 +113,7 @@ impl App {
             // 没有选中任何选项且不在自定义输入模式：自动选中当前光标行
             if !q.in_custom_input
                 && !q.selected.iter().any(|&v| v)
-                && q.custom_input.trim().is_empty()
+                && q.custom_input.value().trim().is_empty()
             {
                 q.toggle_current();
             }
@@ -186,7 +186,7 @@ impl App {
                                     .into_iter()
                                     .next()
                                     .or_else(|| {
-                                        let s = q.custom_input.trim().to_string();
+                                        let s = q.custom_input.value().trim().to_string();
                                         if s.is_empty() {
                                             None
                                         } else {

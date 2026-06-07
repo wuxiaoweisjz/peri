@@ -37,7 +37,12 @@ impl PluginPanel {
                 key: Key::Char(c), ..
             } => {
                 self.discover_searching = true;
-                self.discover_search.insert(c);
+                self.discover_search.input(Input {
+                    key: Key::Char(c),
+                    ctrl: false,
+                    alt: false,
+                    shift: false,
+                });
                 self.discover_list.set_items(
                     self.discover_filtered_plugins()
                         .into_iter()

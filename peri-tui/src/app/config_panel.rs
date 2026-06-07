@@ -6,6 +6,7 @@ use tui_textarea::Input;
 use crate::config::PeriConfig;
 
 use super::{
+    field_textarea::FieldTextarea,
     panel_component::PanelComponent,
     panel_manager::{EventResult, PanelContext, PanelKind},
     App,
@@ -104,13 +105,10 @@ pub struct ConfigPanel {
     pub cursor: usize,
     // 编辑缓冲区
     pub buf_autocompact: bool,
-    pub buf_threshold: String,
-    pub cur_threshold: usize,
+    pub field_threshold: FieldTextarea,
     pub buf_language: String, // "" = auto, "en", "zh-CN"
-    pub buf_persona: String,
-    pub cur_persona: usize,
-    pub buf_tone: String,
-    pub cur_tone: usize,
+    pub field_persona: FieldTextarea,
+    pub field_tone: FieldTextarea,
     pub buf_proactiveness: String, // "low" / "medium" / "high"
     pub buf_diff: bool,
     pub buf_streaming: String, // "streaming" / "block" / "none"
@@ -132,16 +130,22 @@ impl ConfigPanel {
             .unwrap_or_else(|| "medium".to_string());
         let diff_enabled = cfg.config.diff_enabled;
 
+        let mut field_threshold = FieldTextarea::single_line();
+        field_threshold.set_value(&threshold);
+
+        let mut field_persona = FieldTextarea::single_line();
+        field_persona.set_value(cfg.config.persona.as_deref().unwrap_or(""));
+
+        let mut field_tone = FieldTextarea::single_line();
+        field_tone.set_value(cfg.config.tone.as_deref().unwrap_or(""));
+
         Self {
             cursor: ROW_AUTOCOMPACT,
             buf_autocompact: autocompact,
-            buf_threshold: threshold,
-            cur_threshold: 0,
+            field_threshold,
             buf_language: cfg.config.language.clone().unwrap_or_default(),
-            buf_persona: cfg.config.persona.clone().unwrap_or_default(),
-            cur_persona: 0,
-            buf_tone: cfg.config.tone.clone().unwrap_or_default(),
-            cur_tone: 0,
+            field_persona,
+            field_tone,
             buf_proactiveness: proactiveness,
             buf_diff: diff_enabled,
             buf_streaming: cfg
@@ -222,54 +226,18 @@ impl ConfigPanel {
     }
 
     pub fn paste_text(&mut self, text: &str) {
-        let text: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
+        if let Some(field) = self.active_field() {
+            let filtered: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
+            field.insert_text(&filtered);
+        }
+    }
+
+    pub fn active_field(&mut self) -> Option<&mut FieldTextarea> {
         match self.cursor {
-            ROW_THRESHOLD => {
-                let buf = &mut self.buf_threshold;
-                let cursor = &mut self.cur_threshold;
-                let char_count = buf.chars().count();
-                if *cursor > char_count {
-                    *cursor = char_count;
-                }
-                let byte_pos = buf
-                    .char_indices()
-                    .nth(*cursor)
-                    .map(|(i, _)| i)
-                    .unwrap_or(buf.len());
-                buf.insert_str(byte_pos, &text);
-                *cursor += text.chars().count();
-            }
-            ROW_PERSONA => {
-                let buf = &mut self.buf_persona;
-                let cursor = &mut self.cur_persona;
-                let char_count = buf.chars().count();
-                if *cursor > char_count {
-                    *cursor = char_count;
-                }
-                let byte_pos = buf
-                    .char_indices()
-                    .nth(*cursor)
-                    .map(|(i, _)| i)
-                    .unwrap_or(buf.len());
-                buf.insert_str(byte_pos, &text);
-                *cursor += text.chars().count();
-            }
-            ROW_TONE => {
-                let buf = &mut self.buf_tone;
-                let cursor = &mut self.cur_tone;
-                let char_count = buf.chars().count();
-                if *cursor > char_count {
-                    *cursor = char_count;
-                }
-                let byte_pos = buf
-                    .char_indices()
-                    .nth(*cursor)
-                    .map(|(i, _)| i)
-                    .unwrap_or(buf.len());
-                buf.insert_str(byte_pos, &text);
-                *cursor += text.chars().count();
-            }
-            _ => {}
+            ROW_THRESHOLD => Some(&mut self.field_threshold),
+            ROW_PERSONA => Some(&mut self.field_persona),
+            ROW_TONE => Some(&mut self.field_tone),
+            _ => None,
         }
     }
 
@@ -284,7 +252,12 @@ impl ConfigPanel {
             .compact
             .get_or_insert_with(peri_agent::agent::CompactConfig::default);
         compact.auto_compact_enabled = self.buf_autocompact;
-        let threshold_val: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(50, 99);
+        let threshold_val: u8 = self
+            .field_threshold
+            .value()
+            .parse()
+            .unwrap_or(85)
+            .clamp(50, 99);
         compact.auto_compact_threshold = threshold_val as f64 / 100.0;
 
         // language: value is always valid (selected from LANGUAGE_OPTIONS)
@@ -295,17 +268,17 @@ impl ConfigPanel {
         };
 
         // persona
-        cfg.config.persona = if self.buf_persona.is_empty() {
+        cfg.config.persona = if self.field_persona.is_empty() {
             None
         } else {
-            Some(self.buf_persona.clone())
+            Some(self.field_persona.value())
         };
 
         // tone
-        cfg.config.tone = if self.buf_tone.is_empty() {
+        cfg.config.tone = if self.field_tone.is_empty() {
             None
         } else {
-            Some(self.buf_tone.clone())
+            Some(self.field_tone.value())
         };
 
         // proactiveness
@@ -329,59 +302,19 @@ impl ConfigPanel {
     }
 
     fn input_char(&mut self, c: char) {
-        match self.cursor {
-            ROW_THRESHOLD => {
-                super::handle_edit_key(
-                    &mut self.buf_threshold,
-                    &mut self.cur_threshold,
-                    Input {
-                        key: tui_textarea::Key::Char(c),
-                        ctrl: false,
-                        alt: false,
-                        shift: false,
-                    },
-                );
-            }
-            ROW_PERSONA => {
-                super::handle_edit_key(
-                    &mut self.buf_persona,
-                    &mut self.cur_persona,
-                    Input {
-                        key: tui_textarea::Key::Char(c),
-                        ctrl: false,
-                        alt: false,
-                        shift: false,
-                    },
-                );
-            }
-            ROW_TONE => {
-                super::handle_edit_key(
-                    &mut self.buf_tone,
-                    &mut self.cur_tone,
-                    Input {
-                        key: tui_textarea::Key::Char(c),
-                        ctrl: false,
-                        alt: false,
-                        shift: false,
-                    },
-                );
-            }
-            _ => {}
+        if let Some(field) = self.active_field() {
+            field.input(Input {
+                key: tui_textarea::Key::Char(c),
+                ctrl: false,
+                alt: false,
+                shift: false,
+            });
         }
     }
 
     fn handle_text_key(&mut self, input: Input) {
-        match self.cursor {
-            ROW_THRESHOLD => {
-                super::handle_edit_key(&mut self.buf_threshold, &mut self.cur_threshold, input);
-            }
-            ROW_PERSONA => {
-                super::handle_edit_key(&mut self.buf_persona, &mut self.cur_persona, input);
-            }
-            ROW_TONE => {
-                super::handle_edit_key(&mut self.buf_tone, &mut self.cur_tone, input);
-            }
-            _ => {}
+        if let Some(field) = self.active_field() {
+            field.input(input);
         }
     }
 }

@@ -103,10 +103,7 @@ fn render_search_box(f: &mut Frame, browser: &ThreadBrowser, area: Rect) {
     } else {
         let mut spans = vec![
             Span::styled(" ⌕ ", Style::default().fg(theme::MUTED)),
-            Span::styled(
-                browser.search_query.display_text('•'),
-                Style::default().fg(theme::TEXT),
-            ),
+            Span::styled(query_val, Style::default().fg(theme::TEXT)),
         ];
         if browser.search_focused {
             spans.push(Span::styled("█", Style::default().fg(theme::TEXT)));
@@ -169,7 +166,7 @@ pub(crate) fn render_thread_browser(
     let max_title_width = list_area.width.saturating_sub(6) as usize;
 
     if filtered.is_empty() {
-        if browser.search_query.value().is_empty() {
+        if browser.search_query.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  (No conversations yet)",
                 Style::default().fg(theme::MUTED),
