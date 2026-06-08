@@ -11,7 +11,7 @@ use super::resolve_path;
 const LINE_EDIT_DESCRIPTION: &str = r#"Applies unified diff patches to files with 5-level fuzzy matching and 3-layer verification.
 
 Provide patches as an array of {file_path, diff} objects. The diff format follows standard unified diff:
-
+ 
 ```
 --- a/file
 +++ b/file
@@ -24,7 +24,7 @@ Provide patches as an array of {file_path, diff} objects. The diff format follow
 
 Features:
 - **5-level fuzzy matching**: L1 exact → L2 whitespace-normalized → L3 similarity → L4 anchor → L5 line-number fallback
-- **3-layer verification**: sanity check → bracket balance → tree-sitter AST guard
+- **2-layer verification**: sanity check → bracket balance
 - **Atomic writes**: all patches to a file are applied in-memory first, verified, then written atomically
 - **Multiple hunks**: multiple hunks per file are applied bottom-to-top to preserve line numbers
 - **CRLF preservation**: detects and preserves original line endings

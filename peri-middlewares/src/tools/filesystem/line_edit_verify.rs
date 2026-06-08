@@ -1,9 +1,6 @@
 //! 三层验证引擎
 //! 层 A: Diff Sanity Guard
 //! 层 B: 括号平衡 + 缩进一致性
-//! 层 C: Tree-sitter AST Guard
-
-use std::path::Path;
 
 /// 验证级别
 #[derive(Debug, Clone, PartialEq)]
@@ -70,13 +67,13 @@ pub fn verify(file_path: &str, old_content: &str, new_content: &str) -> VerifyRe
         };
     }
 
-    // 层 C: Tree-sitter AST
-    let ast = verify_ast(file_path, old_content, new_content);
+    // 层 C: AST Guard（已移除 tree-sitter，始终跳过）
+    let _ = (file_path, old_content, new_content);
 
     VerifyResult {
         sanity,
         brackets,
-        ast,
+        ast: VerifyLevel::Skip,
     }
 }
 
@@ -255,62 +252,6 @@ fn verify_brackets(content: &str) -> VerifyLevel {
     VerifyLevel::Ok
 }
 
-// ─── 层 C: Tree-sitter AST ───────────────────────────────────────
-fn verify_ast(file_path: &str, old_content: &str, new_content: &str) -> VerifyLevel {
-    let ext = Path::new(file_path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-
-    let language: tree_sitter::Language = match ext {
-        "rs" => tree_sitter_rust::LANGUAGE.into(),
-        "ts" | "tsx" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        "js" | "jsx" => tree_sitter_javascript::LANGUAGE.into(),
-        "py" => tree_sitter_python::LANGUAGE.into(),
-        "go" => tree_sitter_go::LANGUAGE.into(),
-        _ => return VerifyLevel::Skip,
-    };
-    let mut parser = tree_sitter::Parser::new();
-    let _ = parser.set_language(&language);
-
-    let errors_before = count_ast_errors(&mut parser, old_content);
-    let errors_after = count_ast_errors(&mut parser, new_content);
-
-    if errors_after > errors_before {
-        return VerifyLevel::Error(format!(
-            "新增 {} 个语法错误（原有 {} 个）",
-            errors_after - errors_before,
-            errors_before
-        ));
-    }
-
-    if errors_before > 0 {
-        return VerifyLevel::Warn(format!("原有 {} 个语法错误（未增加）", errors_before));
-    }
-
-    VerifyLevel::Ok
-}
-
-fn count_ast_errors(parser: &mut tree_sitter::Parser, content: &str) -> usize {
-    match parser.parse(content, None) {
-        Some(tree) => count_error_nodes(&tree.root_node()),
-        None => 1,
-    }
-}
-
-fn count_error_nodes(node: &tree_sitter::Node) -> usize {
-    let mut count = 0;
-    if node.is_error() || node.is_missing() {
-        count += 1;
-    }
-    for i in 0..node.child_count() {
-        if let Some(child) = node.child(i as u32) {
-            count += count_error_nodes(&child);
-        }
-    }
-    count
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,28 +322,6 @@ mod tests {
         assert!(matches!(result.sanity, VerifyLevel::Error(_)));
         assert!(matches!(result.brackets, VerifyLevel::Skip));
         assert!(matches!(result.ast, VerifyLevel::Skip));
-    }
-
-    #[test]
-    fn test_ast_非支持类型_skip() {
-        let result = verify_ast("config.yaml", "old", "new");
-        assert_eq!(result, VerifyLevel::Skip);
-    }
-
-    #[test]
-    fn test_ast_rust_语法错误() {
-        let old = "fn main() {}\n";
-        let new = "fn main( {}\n";
-        let result = verify_ast("test.rs", old, new);
-        assert!(matches!(result, VerifyLevel::Error(_)));
-    }
-
-    #[test]
-    fn test_ast_rust_原有错误未增() {
-        let old = "fn main( {}\n";
-        let new = "fn main( {}\n";
-        let result = verify_ast("test.rs", old, new);
-        assert!(matches!(result, VerifyLevel::Warn(_)));
     }
 
     // ═══════════════════════════════════════════════════════════════
