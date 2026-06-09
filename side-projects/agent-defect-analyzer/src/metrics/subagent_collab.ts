@@ -45,7 +45,6 @@ interface SubAgentAnalysis {
 function analyzeAgentClassification(subAgents: SubAgentAnalysis[]): void {
   printSection("指标 1：内置 Agent 分类分析");
 
-  // 按类型分：编辑型 vs 非编辑型
   const editingAgents = subAgents.filter(
     (sa) => !NON_EDITING_TYPES.has(sa.subagentType),
   );
@@ -54,71 +53,45 @@ function analyzeAgentClassification(subAgents: SubAgentAnalysis[]): void {
   );
 
   printMetric("SubAgent 总数", subAgents.length);
-  printMetric("编辑型", editingAgents.length, " (需产出编辑)");
-  printMetric(
-    "非编辑型",
-    nonEditingAgents.length,
-    ` (${[...NON_EDITING_TYPES].join(", ")})`,
-  );
+  printMetric("编辑型", editingAgents.length);
+  printMetric("非编辑型", nonEditingAgents.length, ` (${[...NON_EDITING_TYPES].join(", ")})`);
 
-  // 类型分布
-  const typeDist = new Map<string, number>();
-  for (const sa of subAgents) {
-    typeDist.set(sa.subagentType, (typeDist.get(sa.subagentType) || 0) + 1);
-  }
-  console.log("");
-  printTable(
-    ["SubAgent 类型", "数量", "分类"],
-    [...typeDist.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([t, c]) => [
-        t,
-        String(c),
-        NON_EDITING_TYPES.has(t) ? "非编辑型" : "编辑型",
-      ]),
-  );
-
-  // ── 子分析 1a：空转检测（仅编辑型）──
-  printSeparator();
-  printSection("空转检测（编辑型）");
-  const emptyRuns = editingAgents.filter(
-    (sa) => !sa.hasEditOutput && sa.messages.length >= EMPTY_RUN_MIN_MESSAGES,
-  );
-  printMetric("编辑型空转数", emptyRuns.length);
-  printMetric("空转率", pct(emptyRuns.length, editingAgents.length || 1));
-
-  if (emptyRuns.length > 0) {
-    emptyRuns.sort((a, b) => b.messages.length - a.messages.length);
-    console.log("");
-    printTable(
-      ["子Agent ID", "类型", "消息数", "父会话 ID"],
-      emptyRuns.slice(0, 15).map((sa) => [
-        sa.thread.id.slice(0, 14) + "...",
-        sa.subagentType,
-        String(sa.thread.message_count),
-        sa.thread.parent_thread_id?.slice(0, 14) + "..." || "-",
-      ]),
-    );
-    if (emptyRuns.length > 15) console.log(`  ... 及其他 ${emptyRuns.length - 15} 个`);
-  }
-
-  // ── 子分析 1b：工具使用模式 ──
-  printSeparator();
-  printSection("工具使用模式（按类型）");
-
+  // ── 构建类型数据 ──
   const typeProfiles = new Map<
     string,
-    { count: number; totalMsg: number; toolCounts: Map<string, number> }
+    {
+      agents: SubAgentAnalysis[];
+      count: number;
+      totalMsg: number;
+      totalCall: number;
+      toolCounts: Map<string, number>;
+      searchPct: number;
+      editPct: number;
+      execPct: number;
+      emptyRunCount: number;
+      emptyRunRate: string;
+      errorCount: number;
+    }
   >();
+
   for (const sa of subAgents) {
     if (!typeProfiles.has(sa.subagentType)) {
       typeProfiles.set(sa.subagentType, {
+        agents: [],
         count: 0,
         totalMsg: 0,
+        totalCall: 0,
         toolCounts: new Map(),
+        searchPct: 0,
+        editPct: 0,
+        execPct: 0,
+        emptyRunCount: 0,
+        emptyRunRate: "N/A",
+        errorCount: 0,
       });
     }
     const p = typeProfiles.get(sa.subagentType)!;
+    p.agents.push(sa);
     p.count++;
     p.totalMsg += sa.thread.message_count;
     for (const msg of sa.messages) {
@@ -129,59 +102,92 @@ function analyzeAgentClassification(subAgents: SubAgentAnalysis[]): void {
       for (const block of blocks) {
         if (block.type === "tool_use") {
           p.toolCounts.set(block.name, (p.toolCounts.get(block.name) || 0) + 1);
+          p.totalCall++;
         }
       }
     }
   }
 
-  console.log("");
-  printTable(
-    ["类型", "数量", "均消息", "总调用", "搜索类", "编辑类", "执行类", "特化方向"],
-    [...typeProfiles.entries()]
-      .sort((a, b) => b[1].count - a[1].count)
-      .map(([type, p]) => {
-        const total = [...p.toolCounts.values()].reduce((s, c) => s + c, 0);
-        const search = [...p.toolCounts.entries()]
-          .filter(([t]) => SEARCH_TOOLS.has(t))
-          .reduce((s, [, c]) => s + c, 0);
-        const edit = [...p.toolCounts.entries()]
-          .filter(([t]) => EDIT_OUTPUT_TOOLS.has(t))
-          .reduce((s, [, c]) => s + c, 0);
-        const exec = [...p.toolCounts.entries()]
-          .filter(([t]) => EXEC_TOOLS.has(t))
-          .reduce((s, [, c]) => s + c, 0);
-        const tag = NON_EDITING_TYPES.has(type) ? " *" : "";
-        const direction = NON_EDITING_TYPES.has(type)
-          ? "只读型"
-          : edit > search * 0.3
-            ? "编辑型"
-            : "研究型";
-        return [
-          type + tag,
-          String(p.count),
-          String(Math.round(p.totalMsg / p.count)),
-          String(total),
-          pct(search, total || 1),
-          pct(edit, total || 1),
-          pct(exec, total || 1),
-          direction,
-        ];
-      }),
-  );
-  console.log("  * 非编辑型");
+  // 计算各类占比
+  for (const [, p] of typeProfiles) {
+    const t = p.totalCall;
+    p.searchPct = [...p.toolCounts.entries()]
+      .filter(([t]) => SEARCH_TOOLS.has(t))
+      .reduce((s, [, c]) => s + c, 0) / (t || 1);
+    p.editPct = [...p.toolCounts.entries()]
+      .filter(([t]) => EDIT_OUTPUT_TOOLS.has(t))
+      .reduce((s, [, c]) => s + c, 0) / (t || 1);
+    p.execPct = [...p.toolCounts.entries()]
+      .filter(([t]) => EXEC_TOOLS.has(t))
+      .reduce((s, [, c]) => s + c, 0) / (t || 1);
 
-  // 每类型 Top 5
-  for (const [type, p] of [...typeProfiles.entries()].sort((a, b) => b[1].count - a[1].count)) {
-    const total = [...p.toolCounts.values()].reduce((s, c) => s + c, 0);
-    if (total === 0) continue;
-    const top5 = [...p.toolCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-    console.log(chalk.dim(`\n  ${type} Top 5:`));
-    for (const [tool, count] of top5) {
-      const bar = "█".repeat(Math.round((count / total) * 25));
-      console.log(chalk.dim(`    ${tool.padEnd(18)} ${String(count).padStart(4)} ${bar}`));
+    // 空转率（仅编辑型）
+    if (!NON_EDITING_TYPES.has(p.agents[0]?.subagentType ?? "")) {
+      p.emptyRunCount = p.agents.filter(
+        (sa) => !sa.hasEditOutput && sa.messages.length >= EMPTY_RUN_MIN_MESSAGES,
+      ).length;
+      p.emptyRunRate = pct(p.emptyRunCount, p.count || 1);
     }
+  }
+
+  // ── 逐一分析各类型 ──
+  const sorted = [...typeProfiles.entries()].sort((a, b) => b[1].count - a[1].count);
+
+  for (const [type, p] of sorted) {
+    const isNonEditing = NON_EDITING_TYPES.has(type);
+    const cat = isNonEditing ? "非编辑型" : "编辑型";
+    const direction = isNonEditing
+      ? "只读"
+      : p.editPct > p.searchPct * 0.3
+        ? "编辑"
+        : "研究";
+
+    printSection(type);
+    console.log(chalk.dim(`  分类: ${cat}  方向: ${direction}型  数量: ${p.count}  均消息: ${Math.round(p.totalMsg / p.count)}  总调用: ${p.totalCall}`));
+
+    // 空转（仅编辑型）
+    if (!isNonEditing) {
+      const icon = p.emptyRunCount / (p.count || 1) > 0.4 ? chalk.red : chalk.yellow;
+      console.log(chalk.dim(`  空转: ${icon(p.emptyRunCount)}/${p.count} (${p.emptyRunRate})`));
+    }
+
+    // 工具占比
+    console.log("");
+    const topTools = [...p.toolCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    for (const [tool, count] of topTools) {
+      const t = p.totalCall || 1;
+      const bar = "█".repeat(Math.round((count / t) * 30));
+      console.log(
+        `    ${tool.padEnd(18)} ${String(count).padStart(5)}  ${pct(count, t).padStart(5)}  ${bar}`,
+      );
+    }
+
+    // 模式分布条
+    console.log("");
+    printBar("搜索", p.searchPct);
+    printBar("编辑", p.editPct);
+    printBar("执行", p.execPct);
+
+    // 空转详情（仅编辑型且有空转）
+    if (!isNonEditing && p.emptyRunCount > 0) {
+      console.log("");
+      printTable(
+        ["空转子Agent ID", "消息数", "创建时间"],
+        p.agents
+          .filter((sa) => !sa.hasEditOutput && sa.messages.length >= EMPTY_RUN_MIN_MESSAGES)
+          .sort((a, b) => b.thread.message_count - a.thread.message_count)
+          .slice(0, 5)
+          .map((sa) => [
+            sa.thread.id.slice(0, 14) + "...",
+            String(sa.thread.message_count),
+            sa.thread.created_at.slice(0, 16).replace("T", " "),
+          ]),
+      );
+    }
+
+    console.log("");
   }
 }
 
