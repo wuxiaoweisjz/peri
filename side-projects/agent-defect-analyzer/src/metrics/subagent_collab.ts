@@ -13,6 +13,15 @@ import { avg, median, p50, p95, pct, formatSize, parseSinceArg, printHeader, pri
 const EDIT_OUTPUT_TOOLS = new Set(["LineEdit", "Edit", "Write"]);
 const EMPTY_RUN_MIN_MESSAGES = 5;
 
+/** 非编辑型 SubAgent 类型：这些 agent 的本职工作就不是编辑文件 */
+const NON_EDITING_TYPES = new Set([
+  "explore",          // 代码探索，只读
+  "web-researcher",   // 网页调研，只读
+  "hello-agent",      // 打招呼，无操作
+  "verification",     // 验证测试，不编辑
+  "plan",             // 方案设计，不编辑
+]);
+
 // ═══════════════════════════════════════════════════
 // 类型
 // ═══════════════════════════════════════════════════
@@ -20,6 +29,7 @@ const EMPTY_RUN_MIN_MESSAGES = 5;
 interface SubAgentAnalysis {
   thread: ThreadRow;
   messages: MessageRow[];
+  subagentType: string;
   hasEditOutput: boolean;
   toolUseCount: number;
   editToolUseCount: number;
@@ -31,7 +41,157 @@ interface SubAgentAnalysis {
 // 指标 1：空转 SubAgent
 // ═══════════════════════════════════════════════════
 
-/** 检查 SubAgent 消息序列中是否有 Write/LineEdit/Edit 的 tool_use */
+function analyzeEmptyRun(subAgents: SubAgentAnalysis[]): void {
+  printSection("指标 1：空转 SubAgent");
+
+  // 按类型分：编辑型 vs 非编辑型
+  const editingAgents = subAgents.filter(
+    (sa) => !NON_EDITING_TYPES.has(sa.subagentType),
+  );
+  const nonEditingAgents = subAgents.filter(
+    (sa) => NON_EDITING_TYPES.has(sa.subagentType),
+  );
+
+  printMetric("SubAgent 总数", subAgents.length);
+  printMetric("编辑型 SubAgent", editingAgents.length, ` (需产出编辑)`);
+  printMetric("非编辑型 SubAgent", nonEditingAgents.length, ` (${[...NON_EDITING_TYPES].join(", ")})`);
+
+  // 类型分布
+  const typeDist = new Map<string, number>();
+  for (const sa of subAgents) {
+    typeDist.set(sa.subagentType, (typeDist.get(sa.subagentType) || 0) + 1);
+  }
+  console.log("");
+  printTable(
+    ["SubAgent 类型", "数量", "分类"],
+    [...typeDist.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, c]) => [
+        t,
+        String(c),
+        NON_EDITING_TYPES.has(t) ? "非编辑型" : "编辑型",
+      ]),
+  );
+
+  // 只对编辑型检测空转
+  const emptyRuns = editingAgents.filter(
+    (sa) => !sa.hasEditOutput && sa.messages.length >= EMPTY_RUN_MIN_MESSAGES,
+  );
+
+  printSeparator();
+  printMetric("编辑型中 空转数", emptyRuns.length);
+  const denom = editingAgents.length || 1;
+  printMetric("编辑型 空转率", pct(emptyRuns.length, denom));
+
+  if (emptyRuns.length === 0) {
+    console.log("  未检测到编辑型空转 SubAgent");
+    return;
+  }
+
+  // 按消息数降序
+  emptyRuns.sort((a, b) => b.messages.length - a.messages.length);
+  const top20 = emptyRuns.slice(0, 20);
+
+  console.log("");
+  printTable(
+    ["子Agent ID", "类型", "消息数", "父会话 ID", "创建时间"],
+    top20.map((sa) => [
+      sa.thread.id.slice(0, 14) + "...",
+      sa.subagentType,
+      String(sa.thread.message_count),
+      sa.thread.parent_thread_id?.slice(0, 14) + "..." || "-",
+      sa.thread.created_at.slice(0, 16).replace("T", " "),
+    ]),
+  );
+
+  if (emptyRuns.length > 20) {
+    console.log(`  ... 及其他 ${emptyRuns.length - 20} 个`);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// 辅助：SubAgent 类型推断 + 编辑产出检测
+// ═══════════════════════════════════════════════════
+
+/** 从父线程的 Agent tool_use 中提取 SubAgent 类型映射 */
+function buildSubAgentTypeMap(
+  loader: DataLoader,
+  subAgents: ThreadRow[],
+): Map<string, string> {
+  const typeMap = new Map<string, string>();
+
+  // 按父线程分组
+  const byParent = new Map<string, ThreadRow[]>();
+  for (const sa of subAgents) {
+    if (!sa.parent_thread_id) continue;
+    if (!byParent.has(sa.parent_thread_id)) byParent.set(sa.parent_thread_id, []);
+    byParent.get(sa.parent_thread_id)!.push(sa);
+  }
+
+  for (const [parentId, children] of byParent) {
+    const messages = loader.loadMessages(parentId);
+
+    // 收集 Agent tool_use 调用
+    const agentCalls = new Map<string, { subagentType?: string }>();
+    for (const msg of messages) {
+      const parsed = DataLoader.parseContent(msg.content);
+      if (!parsed || parsed.role !== "assistant") continue;
+      const ai = parsed as AiContent;
+      const blocks: ContentBlock[] = Array.isArray(ai.content) ? ai.content : [];
+      for (const block of blocks) {
+        if (block.type === "tool_use" && block.name === "Agent") {
+          agentCalls.set(block.id, {
+            subagentType: (block.input as any)?.subagent_type || (block.input as any)?.type,
+          });
+        }
+      }
+    }
+
+    if (agentCalls.size === 0) continue;
+
+    // 匹配 tool_result → child thread
+    for (const msg of messages) {
+      const parsed = DataLoader.parseContent(msg.content);
+      if (!parsed || parsed.role !== "tool") continue;
+      const tc = parsed as any;
+      if (!tc.tool_call_id) continue;
+
+      const agentCall = agentCalls.get(tc.tool_call_id);
+      if (!agentCall) continue;
+
+      const resultContent =
+        typeof tc.content === "string" ? tc.content : JSON.stringify(tc.content);
+      for (const child of children) {
+        if (resultContent.includes(child.id)) {
+          typeMap.set(child.id, agentCall.subagentType || "unknown");
+        }
+      }
+    }
+
+    // 回退：按顺序匹配未分配的
+    const unmatched = children.filter((c) => !typeMap.has(c.id));
+    if (unmatched.length > 0) {
+      const agentEntries = [...agentCalls.entries()];
+      for (let i = 0; i < Math.min(unmatched.length, agentEntries.length); i++) {
+        typeMap.set(
+          unmatched[i].id,
+          agentEntries[i][1].subagentType || "unknown",
+        );
+      }
+    }
+  }
+
+  // 最终回退
+  for (const sa of subAgents) {
+    if (!typeMap.has(sa.id)) {
+      typeMap.set(sa.id, "unknown");
+    }
+  }
+
+  return typeMap;
+}
+
+/** 检查消息序列中是否有编辑产出 */
 function hasEditOutput(messages: MessageRow[]): boolean {
   for (const msg of messages) {
     const parsed = DataLoader.parseContent(msg.content);
@@ -45,42 +205,6 @@ function hasEditOutput(messages: MessageRow[]): boolean {
     }
   }
   return false;
-}
-
-function analyzeEmptyRun(subAgents: SubAgentAnalysis[]): void {
-  printSection("指标 1：空转 SubAgent");
-
-  const emptyRuns = subAgents.filter(
-    (sa) => !sa.hasEditOutput && sa.messages.length >= EMPTY_RUN_MIN_MESSAGES,
-  );
-
-  printMetric("SubAgent 总数", subAgents.length);
-  printMetric("空转 SubAgent 数", emptyRuns.length);
-  printMetric("空转占比", pct(emptyRuns.length, subAgents.length));
-
-  if (emptyRuns.length === 0) {
-    console.log("  未检测到空转 SubAgent");
-    return;
-  }
-
-  // 按消息数降序
-  emptyRuns.sort((a, b) => b.messages.length - a.messages.length);
-  const top20 = emptyRuns.slice(0, 20);
-
-  console.log("");
-  printTable(
-    ["子Agent ID", "消息数", "父会话 ID", "创建时间"],
-    top20.map((sa) => [
-      sa.thread.id.slice(0, 14) + "...",
-      String(sa.thread.message_count),
-      sa.thread.parent_thread_id?.slice(0, 14) + "..." || "-",
-      sa.thread.created_at.slice(0, 16).replace("T", " "),
-    ]),
-  );
-
-  if (emptyRuns.length > 20) {
-    console.log(`  ... 及其他 ${emptyRuns.length - 20} 个`);
-  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -254,16 +378,35 @@ function computeOutputRatio(messages: MessageRow[]): { total: number; edit: numb
 function analyzeOutputRatio(subAgents: SubAgentAnalysis[]): void {
   printSection("指标 4：SubAgent 产出比（编辑类工具 / 总 tool_use）");
 
+  // 总体统计
   let totalToolUse = 0;
   let totalEditUse = 0;
-  const ratios: number[] = [];
+  const ratios: { id: string; type: string; ratio: number; total: number; edit: number }[] = [];
+
+  // 按类型统计
+  const typeStats = new Map<string, { total: number; edit: number }>();
 
   for (const sa of subAgents) {
     const stats = computeOutputRatio(sa.messages);
     totalToolUse += stats.total;
     totalEditUse += stats.edit;
+
+    // 按类型聚合
+    if (!typeStats.has(sa.subagentType)) {
+      typeStats.set(sa.subagentType, { total: 0, edit: 0 });
+    }
+    const ts = typeStats.get(sa.subagentType)!;
+    ts.total += stats.total;
+    ts.edit += stats.edit;
+
     if (stats.total > 0) {
-      ratios.push(stats.edit / stats.total);
+      ratios.push({
+        id: sa.thread.id,
+        type: sa.subagentType,
+        ratio: stats.edit / stats.total,
+        total: stats.total,
+        edit: stats.edit,
+      });
     }
   }
 
@@ -277,39 +420,71 @@ function analyzeOutputRatio(subAgents: SubAgentAnalysis[]): void {
   printMetric("编辑类 tool_use 数", totalEditUse);
   printMetric("总体产出比", pct(totalEditUse, totalToolUse));
 
-  if (ratios.length > 0) {
-    printMetric("P50 产出比", pct(p50(ratios), 1));
-    printMetric("P95 产出比", pct(p95(ratios), 1));
-  }
-
-  // 分布桶
-  const buckets: Record<string, number> = {
-    "0": 0,
-    "0-20%": 0,
-    "20-50%": 0,
-    "50-80%": 0,
-    "80%+": 0,
-  };
-  for (const r of ratios) {
-    if (r === 0) buckets["0"]++;
-    else if (r <= 0.2) buckets["0-20%"]++;
-    else if (r <= 0.5) buckets["20-50%"]++;
-    else if (r <= 0.8) buckets["50-80%"]++;
-    else buckets["80%+"]++;
-  }
-
-  console.log("");
+  // 按类型分层
+  printSection("按 SubAgent 类型分层");
   printTable(
-    ["产出比范围", "数量", "占比", "分布"],
-    Object.entries(buckets).map(([label, count]) => [
-      label,
-      String(count),
-      pct(count, ratios.length),
-      "█".repeat(Math.round((count / Math.max(1, ratios.length)) * 40)),
-    ]),
+    ["类型", "SubAgent 数", "tool_use 总数", "编辑类", "产出比"],
+    [...typeStats.entries()]
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([t, s]) => [
+        t + (NON_EDITING_TYPES.has(t) ? " *" : ""),
+        String(subAgents.filter((sa) => sa.subagentType === t).length),
+        String(s.total),
+        String(s.edit),
+        pct(s.edit, s.total || 1),
+      ]),
   );
+  console.log("  * 非编辑型（本职不含编辑任务）");
 
-  printBar("总体编辑产出比", overallRatio);
+  // 编辑型单独统计
+  printSection("编辑型 SubAgent 产出比（排除非编辑型）");
+  const editingRatios = ratios.filter((r) => !NON_EDITING_TYPES.has(r.type));
+  const editingTotal = editingRatios.reduce((s, r) => s + r.total, 0);
+  const editingEdit = editingRatios.reduce((s, r) => s + r.edit, 0);
+
+  printMetric("编辑型总 tool_use", editingTotal);
+  printMetric("编辑型编辑类产出", editingEdit);
+  printMetric("编辑型产出比", pct(editingEdit, editingTotal || 1));
+
+  if (editingRatios.length > 0) {
+    printMetric(
+      "P50 产出比",
+      pct(p50(editingRatios.map((r) => r.ratio)), 1),
+    );
+    printMetric(
+      "P95 产出比",
+      pct(p95(editingRatios.map((r) => r.ratio)), 1),
+    );
+
+    // 分布桶（仅编辑型）
+    const buckets: Record<string, number> = {
+      "0": 0,
+      "0-20%": 0,
+      "20-50%": 0,
+      "50-80%": 0,
+      "80%+": 0,
+    };
+    for (const r of editingRatios) {
+      if (r.ratio === 0) buckets["0"]++;
+      else if (r.ratio <= 0.2) buckets["0-20%"]++;
+      else if (r.ratio <= 0.5) buckets["20-50%"]++;
+      else if (r.ratio <= 0.8) buckets["50-80%"]++;
+      else buckets["80%+"]++;
+    }
+
+    console.log("");
+    printTable(
+      ["产出比范围", "数量", "占比", "分布"],
+      Object.entries(buckets).map(([label, count]) => [
+        label,
+        String(count),
+        pct(count, editingRatios.length),
+        "█".repeat(Math.round((count / Math.max(1, editingRatios.length)) * 40)),
+      ]),
+    );
+  }
+
+  printBar("编辑型产出比", editingEdit / (editingTotal || 1));
 }
 
 // ═══════════════════════════════════════════════════
@@ -361,14 +536,24 @@ function main(): void {
 
   printSeparator();
 
+  // 推断 SubAgent 类型（从父线程的 Agent 调用中提取 subagent_type）
+  const typeMap = buildSubAgentTypeMap(loader, filteredSubAgents);
+  const unknownCount = [...typeMap.values()].filter((t) => t === "unknown").length;
+  if (unknownCount > 0) {
+    // 静默处理：类型未知时默认可编辑
+
+  }
+
   // 批量加载消息（只加载一次，各指标复用）
   const analyses: SubAgentAnalysis[] = [];
   for (const t of filteredSubAgents) {
     const messages = loader.loadMessages(t.id);
+    const saType = typeMap.get(t.id) || "unknown";
     analyses.push({
       thread: t,
       messages,
-      hasEditOutput: hasEditOutput(messages),
+      subagentType: saType,
+      hasEditOutput: saType === "unknown" ? false : hasEditOutput(messages),
       toolUseCount: 0,
       editToolUseCount: 0,
       toolErrorCount: 0,
