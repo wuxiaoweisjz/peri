@@ -4,10 +4,6 @@ pub mod glob;
 pub mod grep;
 pub(crate) mod grep_args;
 pub(crate) mod grep_format;
-pub mod line_edit;
-pub mod line_edit_diff;
-pub mod line_edit_match;
-pub mod line_edit_verify;
 pub mod read;
 pub mod write;
 
@@ -15,7 +11,6 @@ pub use edit::EditFileTool;
 pub use folder::FolderOperationsTool;
 pub use glob::GlobFilesTool;
 pub use grep::GrepTool;
-pub use line_edit::LineEditTool;
 pub use read::ReadFileTool;
 pub use write::WriteFileTool;
 

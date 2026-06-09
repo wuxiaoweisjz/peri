@@ -77,8 +77,8 @@ fn test_coder_agent_tools() {
     let tools = parsed.tools();
     assert_eq!(tools.len(), 7, "Coder agent should have exactly 7 tools");
     assert!(
-        tools.iter().any(|t| t.eq_ignore_ascii_case("LineEdit")),
-        "Coder agent should have LineEdit"
+        tools.iter().any(|t| t.eq_ignore_ascii_case("Edit")),
+        "Coder agent should have Edit"
     );
     assert!(
         tools.iter().any(|t| t.eq_ignore_ascii_case("Write")),

@@ -94,10 +94,9 @@ impl AgentCommand for BgCommand {
         // 1. Background workers should not depend on external MCP servers that may be unavailable
         // 2. MCP tools may require interactive approval, which doesn't work for background agents
         // 3. Core filesystem + terminal tools cover the majority of background task use cases
-        let line_edit_mode = ctx.peri_config.config.betas.line_edit;
         let parent_tools: Arc<Vec<Arc<dyn peri_agent::tools::BaseTool>>> = {
             let mut tools: Vec<Box<dyn peri_agent::tools::BaseTool>> =
-                FilesystemMiddleware::build_tools_with_mode(&ctx.cwd, line_edit_mode);
+                FilesystemMiddleware::build_tools(&ctx.cwd);
             tools.extend(TerminalMiddleware::build_tools(&ctx.cwd));
             Arc::new(
                 tools

@@ -199,9 +199,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 `settings.json` → `config.betas` 控制 beta 功能。所有字段默认 `false`。
 
-| 字段 | 说明 |
-|------|------|
-| `lineEdit` | 启用行号编辑模式——Edit 替换为 LineEdit（unified diff 输入、5 级匹配回退、3 层验证、原子性写入） |
+当前无活跃 beta 功能。
 
 ## CLI 参数
 

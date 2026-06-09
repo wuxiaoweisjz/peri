@@ -235,10 +235,9 @@ pub fn build_agent(
     let ask_user_tool = AskUserTool::new(permission_broker.clone());
 
     // 父工具集（供子 agent 继承）
-    let line_edit_mode = peri_config.config.betas.line_edit;
-    let filesystem_middleware = FilesystemMiddleware::new().with_line_edit_mode(line_edit_mode);
+    let filesystem_middleware = FilesystemMiddleware::new();
     let mut parent_tools: Vec<Box<dyn peri_agent::tools::BaseTool>> =
-        FilesystemMiddleware::build_tools_with_mode(&cwd, line_edit_mode);
+        FilesystemMiddleware::build_tools(&cwd);
     parent_tools.extend(TerminalMiddleware::build_tools(&cwd));
     if let Some(ref pool) = mcp_pool {
         let mcp_tools = peri_middlewares::mcp::build_tool_bridges(pool);

@@ -386,7 +386,7 @@ fn test_format_available_agents_with_agents() {
         result.contains("- analyst: Analyzes data"),
         "Should contain analyst entry"
     );
-    // Should also contain built-in agents (explore, general-purpose, plan, verification)
+    // Should also contain built-in agents (coder, explore, general-purpose, plan, verification)
     assert!(
         result.contains("- explore:"),
         "Should contain built-in explore agent"
@@ -395,8 +395,8 @@ fn test_format_available_agents_with_agents() {
     let lines: Vec<&str> = result.lines().filter(|l| l.starts_with("- ")).collect();
     assert_eq!(
         lines.len(),
-        6,
-        "Should have 2 project + 4 built-in agent entries"
+        7,
+        "Should have 2 project + 5 built-in agent entries"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

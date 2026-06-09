@@ -102,11 +102,7 @@ impl ThinkingConfig {
 
 /// Beta 功能开关配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct BetasConfig {
-    /// 启用 line edit 基于行号的编辑模式
-    #[serde(default)]
-    pub line_edit: bool,
-}
+pub struct BetasConfig {}
 
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
