@@ -624,195 +624,259 @@ function analyzeGeneralPurposeResearch(
         taskType: classifyTask(call.prompt),
         tools: [...tools].sort(),
       });
+
+      // 收集每实例的工具计数（用于 Grep 重复分析）
+      const toolCounts = new Map<string, number>();
+      for (const cm of childMsgs) {
+        const parsed = DataLoader.parseContent(cm.content);
+        if (!parsed || parsed.role !== "assistant") continue;
+        const blocks: ContentBlock[] = Array.isArray(parsed.content) ? parsed.content : [];
+        for (const block of blocks) {
+          if (block.type === "tool_use") {
+            toolCounts.set(block.name, (toolCounts.get(block.name) || 0) + 1);
+          }
+        }
+      }
+      // 将计数存在实例上（动态属性）
+      (instances[instances.length - 1] as any).toolCounts = Object.fromEntries(toolCounts);
+      (instances[instances.length - 1] as any).errorCount = 0;
+      // 统计 tool_result 错误
+      for (const cm of childMsgs) {
+        const parsed = DataLoader.parseContent(cm.content);
+        if (parsed && parsed.role === "tool") {
+          if ((parsed as any).is_error)
+            (instances[instances.length - 1] as any).errorCount++;
+        }
+      }
     }
   }
 
   // ── 分类 ──
-  type PatternGroup = {
-    pattern: string;
-    instances: GpInstance[];
-    avgMsg: number;
-    topTools: [string, number][];
-    replaceableBy: string;
-    estimatedSavings: string;
-  };
-
-  const groups: PatternGroup[] = [
-    {
-      pattern: "纯搜索",
-      instances: [],
-      avgMsg: 0,
-      topTools: [],
-      replaceableBy: "explore",
-      estimatedSavings: "工具描述 ~40%, 迭代上限 20→节省消息",
-    },
-    {
-      pattern: "搜索+编辑",
-      instances: [],
-      avgMsg: 0,
-      topTools: [],
-      replaceableBy: "coder（新特化）",
-      estimatedSavings: "工具描述 ~25%, 减少 WebSearch 等低使用率工具",
-    },
-    {
-      pattern: "纯编辑",
-      instances: [],
-      avgMsg: 0,
-      topTools: [],
-      replaceableBy: "coder",
-      estimatedSavings: "去掉搜索类工具描述",
-    },
-    {
-      pattern: "纯执行",
-      instances: [],
-      avgMsg: 0,
-      topTools: [],
-      replaceableBy: "—",
-      estimatedSavings: "—",
-    },
-  ];
+  const searchEditors: GpInstance[] = [];
+  const pureSearchers: GpInstance[] = [];
 
   for (const inst of instances) {
     const hasEdit = inst.tools.some((t) =>
       ["Write", "Edit", "LineEdit", "HashlineEdit"].includes(t),
     );
     const hasSearch = inst.tools.some((t) => SEARCH_TOOLS.has(t));
-    const hasBash = inst.tools.some((t) => t === "Bash");
-
-    let pattern: string;
-    if (hasEdit && hasSearch) pattern = "搜索+编辑";
-    else if (hasEdit && !hasSearch) pattern = "纯编辑";
-    else if (!hasEdit && hasSearch) pattern = "纯搜索";
-    else if (hasBash) pattern = "纯执行";
-    else pattern = "其他";
-
-    const g = groups.find((g) => g.pattern === pattern);
-    if (g) g.instances.push(inst);
+    if (hasEdit && hasSearch) searchEditors.push(inst);
+    else if (!hasEdit) pureSearchers.push(inst);
   }
 
   // ── 输出 ──
-  // 总览
-  printSection("场景分布");
+  printSection("总体分布");
   console.log("");
   printTable(
-    ["模式", "数量", "占比", "均消息", "可替换为", "预计节省"],
-    groups
-      .filter((g) => g.instances.length > 0)
-      .map((g) => {
-        const msgAll = g.instances.map((i) => i.msgCount);
-        return [
-          g.pattern,
-          String(g.instances.length),
-          pct(g.instances.length, instances.length || 1),
-          String(Math.round(avg(msgAll))),
-          g.replaceableBy,
-          g.estimatedSavings,
-        ];
-      }),
+    ["模式", "数量", "占比", "均消息", "P95", "方向"],
+    [
+      [
+        "搜索+编辑",
+        String(searchEditors.length),
+        pct(searchEditors.length, instances.length || 1),
+        String(Math.round(avg(searchEditors.map((i) => i.msgCount)))),
+        String(Math.round(p95(searchEditors.map((i) => i.msgCount)))),
+        "coder",
+      ],
+      [
+        "纯搜索",
+        String(pureSearchers.length),
+        pct(pureSearchers.length, instances.length || 1),
+        String(Math.round(avg(pureSearchers.map((i) => i.msgCount)))),
+        String(Math.round(p95(pureSearchers.map((i) => i.msgCount)))),
+        "explore",
+      ],
+    ],
   );
 
-  // 逐模式展开
-  for (const g of groups.filter((g) => g.instances.length > 0)) {
-    printSection(`${g.pattern}（${g.instances.length} 个）`);
+  // ── 每会话工具明细 ──
+  const allGp = [...searchEditors, ...pureSearchers]
+    .sort((a, b) => b.msgCount - a.msgCount);
 
-    // 任务类型分布
-    const taskDist = new Map<string, number>();
-    for (const inst of g.instances) {
-      taskDist.set(inst.taskType, (taskDist.get(inst.taskType) || 0) + 1);
-    }
-    console.log(
-      "  任务类型: " +
-        [...taskDist.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .map(([t, c]) => `${t}(${c})`)
-          .join(", "),
-    );
+  printSeparator();
+  printSection("会话工具明细（按消息数降序）");
+  console.log("");
 
-    // 工具使用
-    const toolAll = new Map<string, number>();
-    for (const inst of g.instances) {
-      for (const t of inst.tools) {
-        toolAll.set(t, (toolAll.get(t) || 0) + 1);
-      }
-    }
-    const topTools = [...toolAll.entries()]
+  const detailRows: string[][] = [];
+  for (const inst of allGp) {
+    const tc = (inst as any).toolCounts as Record<string, number> || {};
+    const top3 = Object.entries(tc)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
-    console.log(
-      "  高频工具: " +
-        topTools
-          .map(
-            ([t, c]) =>
-              `${t}(${pct(c, g.instances.length)})`,
-          )
-          .join(", "),
-    );
+      .slice(0, 3)
+      .map(([t, c]) => `${t}×${c}`)
+      .join(" ");
+    const hasEdit = inst.tools.some((t) => EDIT_OUTPUT_TOOLS.has(t));
+    const hasSearch = inst.tools.some((t) => SEARCH_TOOLS.has(t));
+    const pattern = hasEdit ? "编辑" : "搜索";
+    const toolCount = Object.keys(tc).length;
+    const errorCount = (inst as any).errorCount || 0;
+    const errorTag = errorCount > 0 ? ` err:${errorCount}` : "";
+    // Highlight sessions with extreme Grep usage
+    const grepHits = tc["Grep"] || 0;
+    const tag = grepHits > 100
+      ? chalk.red(` ⚠ Grep×${grepHits}`)
+      : grepHits > 50
+        ? chalk.yellow(` Grep×${grepHits}`)
+        : "";
 
-    // 消息量分布
-    const msgVals = g.instances.map((i) => i.msgCount).sort((a, b) => a - b);
-    console.log(
-      `  消息量: P50=${p50(msgVals).toFixed(0)}  P75=${quantile(msgVals, 0.75).toFixed(0)}  P95=${p95(msgVals).toFixed(0)}  max=${msgVals[msgVals.length - 1]}`,
-    );
-
-    // 典型 prompt 示例
-    const samples = g.instances
-      .sort((a, b) => b.msgCount - a.msgCount)
-      .slice(0, 3);
-    console.log("  典型任务:");
-    for (const s of samples) {
-      const trimmed = s.prompt.length > 120 ? s.prompt.slice(0, 120) + "..." : s.prompt;
-      console.log(chalk.dim(`    [${s.msgCount}条] ${trimmed.replace(/\n/g, " / ")}`));
-    }
-
-    console.log("");
+    detailRows.push([
+      inst.id.slice(0, 14) + "...",
+      String(inst.msgCount),
+      inst.taskType,
+      pattern,
+      String(toolCount) + "种",
+      top3 + errorTag,
+      tag,
+    ]);
   }
 
-  // ── 推荐 ──
-  printSection("特化建议");
+  printTable(
+    ["ID", "消息", "任务", "模式", "工具种", "Top 3 工具", "异常"],
+    detailRows,
+  );
 
-  const pureSearch = groups.find((g) => g.pattern === "纯搜索");
-  const searchEdit = groups.find((g) => g.pattern === "搜索+编辑");
-
-  if (pureSearch && pureSearch.instances.length > 0) {
-    const pctGp = pct(pureSearch.instances.length, gpThreads.length);
-    console.log(
-      chalk.green(
-        `  1. ${pureSearch.instances.length} 个 (${pctGp}) general-purpose 仅做搜索/阅读 → 可用 explore 替代`,
-      ),
-    );
-    console.log(chalk.dim(`     预计节省: 无编辑工具描述 + 迭代上限降至 20 轮`));
-    const msgAll = pureSearch.instances.map((i) => i.msgCount);
-    console.log(
-      chalk.dim(
-        `     当前消耗: 共 ${msgAll.reduce((a, b) => a + b, 0)} 条消息, 均 ${Math.round(avg(msgAll))} 条/次`,
-      ),
-    );
-  }
-
-  if (searchEdit && searchEdit.instances.length > 0) {
-    const pctGp = pct(searchEdit.instances.length, gpThreads.length);
+  // ── Grep 重复分析 ──
+  printSeparator();
+  printSection("Grep 重复搜索分析");
+  const highGrepInstances = allGp.filter(
+    (inst) => ((inst as any).toolCounts?.Grep || 0) > 30,
+  );
+  if (highGrepInstances.length > 0) {
     console.log(
       chalk.yellow(
-        `  2. ${searchEdit.instances.length} 个 (${pctGp}) 搜索+编辑 → 建议创建特化 "coder" agent`,
+        `  检测到 ${highGrepInstances.length} 个会话 Grep 调用 > 30 次，可能存在搜索循环`,
       ),
     );
+    for (const inst of highGrepInstances) {
+      const grepHits = (inst as any).toolCounts?.Grep || 0;
+      const totalTools = Object.values(
+        (inst as any).toolCounts || {},
+      ).reduce((s: number, c: number) => s + c, 0);
+      const grepPct = pct(grepHits, totalTools || 1);
+      console.log(
+        chalk.dim(
+          `    ${inst.id.slice(0, 8)}  Grep ${grepHits}/${totalTools} (${grepPct})  ${inst.taskType}  [${inst.msgCount}条]`,
+        ),
+      );
+    }
     console.log(
-      chalk.dim(`     工具集: Read + Grep + Glob + Bash + LineEdit + Write + Edit + TodoWrite`),
+      chalk.dim("\n  根因推测: 上下文丢失 → 忘记搜索结果 → 重复搜索 → 上下文进一步膨胀"),
     );
+  } else {
+    console.log("  未检测到异常 Grep 模式");
+  }
+
+  // ── Coder Agent 完整 spec ──
+  printSeparator();
+  printSection("Coder Agent 特化规格");
+
+  // 统计所有编辑+搜索实例的工具使用
+  const allEditTools = new Map<string, number>();
+  let editTotal = 0;
+  for (const inst of searchEditors) {
+    const tc = (inst as any).toolCounts as Record<string, number> || {};
+    for (const [t, c] of Object.entries(tc)) {
+      allEditTools.set(t, (allEditTools.get(t) || 0) + c);
+      editTotal += c;
+    }
+  }
+
+  const usedTools = [...allEditTools.entries()]
+    .sort((a, b) => b[1] - a[1]);
+
+  console.log("");
+  printTable(
+    ["工具", "调用数", "占比", "保留", "说明"],
+    usedTools.map(([tool, count]) => {
+      const use = count / (editTotal || 1);
+      const keep =
+        ["Read", "Grep", "Glob", "Bash", "LineEdit", "Write", "Edit", "TodoWrite"].includes(tool);
+      const reason = use === 0
+        ? "从未使用"
+        : use < 0.005
+          ? "几乎不用"
+          : keep
+            ? ""
+            : "低使用率";
+      return [
+        tool,
+        String(count),
+        pct(count, editTotal || 1),
+        keep ? chalk.green("✓") : chalk.red("✗"),
+        reason,
+      ];
+    }),
+  );
+
+  console.log("");
+  console.log(chalk.bold("  Coder Agent 定义:"));
+  console.log(chalk.green("  工具集 (7个):"));
+  console.log(chalk.dim("    Read   — 必读源码，理解上下文"));
+  console.log(chalk.dim("    Grep   — 查找引用，确认影响面"));
+  console.log(chalk.dim("    Glob   — 文件发现，目录结构"));
+  console.log(chalk.dim("    Bash   — 目录探索 + 构建/测试验证"));
+  console.log(chalk.dim("    LineEdit — 主力编辑（成功率 98.1%）"));
+  console.log(chalk.dim("    Write  — 创建新文件"));
+  console.log(chalk.dim("    TodoWrite — 多步骤任务追踪"));
+  console.log(chalk.red("  移除:"));
+  console.log(
+    chalk.dim(
+      `    WebSearch(${allEditTools.get("WebSearch") || 0}) WebFetch(${allEditTools.get("WebFetch") || 0}) Agent(${allEditTools.get("Agent") || 0}) AskUserQuestion(${allEditTools.get("AskUserQuestion") || 0})`,
+    ),
+  );
+
+  const msgVals = searchEditors.map((i) => i.msgCount);
+  const p95Val = Math.round(p95(msgVals));
+  const maxVal = msgVals.sort((a, b) => b - a)[0];
+  const p50Val = Math.round(p50(msgVals));
+
+  console.log("");
+  console.log(chalk.bold("  迭代上限:"));
+  console.log(
+    chalk.dim(
+      `    200 轮（成功案例 P50=${p50Val} P95=${p95Val}，给安全余量）`,
+    ),
+  );
+
+  console.log("");
+  console.log(chalk.bold("  上下文预算:"));
+  console.log(
+    chalk.dim(
+      `    比 general-purpose 小 ~30%（压缩描述 token + 迭代上限，减少 Grep 搜索循环风险）`,
+    ),
+  );
+  console.log(
+    chalk.dim(
+      `    依据: 同任务对比 — coder 候选版 153msgs 完成，全功能版 717msgs(584×Grep) 失败`,
+    ),
+  );
+
+  console.log("");
+  console.log(chalk.bold("  适用任务:"));
+  const taskDist = new Map<string, number>();
+  for (const inst of searchEditors) taskDist.set(inst.taskType, (taskDist.get(inst.taskType) || 0) + 1);
+  console.log(
+    chalk.dim(
+      `    ${[...taskDist.entries()].sort((a,b) => b[1]-a[1]).map(([t,c]) => `${t}(${c})`).join(", ")}`,
+    ),
+  );
+
+  // ── Explore 建议 ──
+  if (pureSearchers.length > 0) {
+    printSeparator();
+    printSection("Explore 替代建议");
+    const pctGp = pct(pureSearchers.length, gpThreads.length);
     console.log(
-      chalk.dim(`     去掉: WebSearch(0%), WebFetch(0%), folder_operations(~10%), Agent(0%)`),
+      chalk.green(
+        `  ${pureSearchers.length} 个 (${pctGp}) general-purpose 仅做搜索/阅读 → 可用 explore 替代`,
+      ),
     );
+    console.log(chalk.dim("  节省: 去掉编辑工具描述 + 迭代上限降至 20 轮"));
+    const msgAll = pureSearchers.map((i) => i.msgCount);
     console.log(
       chalk.dim(
-        `     预计节省: 工具描述 tokens ~25% ，每会话省 ~50 条工具描述`,
+        `  当前消耗: ${msgAll.reduce((a, b) => a + b, 0)} 条消息, 均 ${Math.round(avg(msgAll))} 条/次`,
       ),
-    );
-
-    // 展示 coder agent 的任务类型
-    const taskDist = new Map<string, number>();
-    for (const inst of searchEdit.instances) taskDist.set(inst.taskType, (taskDist.get(inst.taskType) || 0) + 1);
-    console.log(
-      chalk.dim(`     覆盖任务: ${[...taskDist.entries()].sort((a,b) => b[1]-a[1]).map(([t,c]) => `${t}(${c})`).join(", ")}`),
     );
   }
 
