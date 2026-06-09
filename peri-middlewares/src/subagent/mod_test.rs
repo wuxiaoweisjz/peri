@@ -260,8 +260,8 @@ fn test_scan_agents_with_extra_dirs_dedup() {
     // Duplicate "reviewer" should be deduped (CWD takes precedence)
     let reviewer_count = result.iter().filter(|(id, _, _)| id == "reviewer").count();
     assert_eq!(reviewer_count, 1, "duplicate agent_id should be deduped");
-    // Total: CWD reviewer (1) + built-in agents (4, none named "reviewer") + extra reviewer (deduped) = 5
-    assert_eq!(result.len(), 5);
+    // Total: CWD reviewer (1) + built-in agents (5, none named "reviewer") + extra reviewer (deduped) = 6
+    assert_eq!(result.len(), 6);
 }
 
 #[test]
