@@ -408,13 +408,16 @@ pub fn build_agent(
         }))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new({
-            let mut mw = SkillsMiddleware::new().with_extra_dirs(plugin_skill_dirs);
+            let mut mw = SkillsMiddleware::new().with_extra_dirs(plugin_skill_dirs.clone());
             if let Some(summary) = frozen_skill_summary {
                 mw = mw.with_frozen_summary(summary);
             }
             mw
         }))
-        .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd)))
+        .add_middleware(Box::new(
+            SkillPreloadMiddleware::new(preload_skills, &cwd)
+                .with_extra_dirs(plugin_skill_dirs.clone()),
+        ))
         .add_middleware(Box::new(peri_middlewares::AtMentionMiddleware::new(
             cwd.clone().into(),
         )))
