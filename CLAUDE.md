@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Rust Agent 框架，7 个 Workspace Crate + `side-projects/git-graph`。
+Rust Agent 框架，8 个 Workspace Crate（含 `side-projects/git-graph`）。
 
 | Crate | 职责 |
 |-------|------|
@@ -16,7 +16,7 @@ Rust Agent 框架，7 个 Workspace Crate + `side-projects/git-graph`。
 
 `rmcp` crate（v1.7）直接引用，不再需要本地 patch。
 
-**其他目录**：`scripts/`（启动脚本）、`side-projects/`（实验性项目，其中 `git-graph` 已纳入 workspace）。
+**其他目录**：`scripts/`（启动脚本）、`docs/`（博客、设计文档、协议规范，见下）、`side-projects/`（实验性项目，其中 `git-graph` 已纳入 workspace）。
 
 ## 依赖关系
 
@@ -61,7 +61,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 **[TRAP]** `Interrupted`/`Error` + `Done` 互斥：`Interrupted`/`Error` 先 `request_rebuild()` + 添加通知，设 `reconcile_already_done=true`，后续 `Done` 跳过 `request_rebuild()` 防止覆盖通知。（详见 spec/global/domains/agent.md#issue_2026-05-25-interrupt-undo-last-user-message）**[TRAP]** Cancel 后历史不应无条件截断：ACP server 在 `result.ok==false` 时无条件 truncate history 会丢失 agent 已写入 state 的消息。应检查 `result.messages.len()` 判断是否有进展，有则保留。（详见 spec/global/domains/agent.md#issue_2026-05-26-ctrl-c-interrupt-causes-agent-amnesia）
 
-**系统提示词**：`build_system_prompt()` 在 `session/new` 时调用一次，产出 `frozen_system_prompt` 存入 `SessionState`，后续轮次直接复用。段落文件位于 `peri-tui/prompts/sections/`（01-06 静态 + 07+10-13 动态，共 11 个），通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前可缓存，标记后不影响前缀缓存。`PromptFeatures` 控制条件段落注入。Agent 构建在 system prompt 末尾追加 Git Attribution 段落（动态区域内不影响缓存前缀）。
+**系统提示词**：`build_system_prompt()` 在 `session/new` 时调用一次，产出 `frozen_system_prompt` 存入 `SessionState`，后续轮次直接复用。段落文件位于 `peri-tui/prompts/sections/`（01-06 静态 + 07-15 动态，共 15 个），通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔——标记前可缓存，标记后不影响前缀缓存。`PromptFeatures` 控制条件段落注入。Agent 构建在 system prompt 末尾追加 Git Attribution 段落（动态区域内不影响缓存前缀）。
 
 ## Thinking/推理模式
 
@@ -138,8 +138,11 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 **ACP Slash Commands**（符合 agentclientprotocol.com）：
 - `CommandKind`（`Immediate`/`Passthrough`/`Transform`）分类执行
-- **[TRAP]** Immediate 命令路径绕过 agent event pump，必须手动调用 `sink.push_done()`。（详见 spec/global/domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done）
+- `/compact`：手动触发 full compact（`CommandKind::Immediate`，文件 `peri-acp/src/session/command/compact.rs`）
+- `/rewind <message_id>`：回滚对话到指定消息，逆向恢复 Write/Edit 文件变更（`CommandKind::Immediate`，文件 `peri-acp/src/session/command/rewind.rs`）
+- `/bg <任务描述>`：后台启动 Fork Agent 执行独立任务（`CommandKind::Immediate`，文件 `peri-acp/src/session/command/bg.rs`）
 - `/clear` 保留为 UICommand（`app.new_thread()` 创建新 session），不走 ACP
+- **[TRAP]** Immediate 命令路径绕过 agent event pump，必须手动调用 `sink.push_done()`。（详见 spec/global/domains/agent.md#issue_2026-05-29-immediate-command-missing-push-done）
 
 **[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵。`build_agent()` 每轮重建的大对象已通过 `AgentPool` session 级缓存复用。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
 
@@ -159,6 +162,8 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 | `peri-agent/src/agent/compact/` | `full_compact()`/`micro_compact_enhanced()`/`re_inject()`/`config`/`invariant` |
 | `peri-middlewares/src/compact_middleware.rs` | `CompactMiddleware`：`before_model` 钩子 |
 | `peri-acp/src/session/command/compact.rs` | `/compact` Slash Command（`CommandKind::Immediate`） |
+| `peri-acp/src/session/command/rewind.rs` | `/rewind` Slash Command（`CommandKind::Immediate`） |
+| `peri-acp/src/session/command/bg.rs` | `/bg` Slash Command（`CommandKind::Immediate`） |
 
 **[TRAP]** compact 后消息结构必须以 `BaseMessage::human(summary + continuation)` 开头。禁止将摘要放在 `BaseMessage::system()` 中。compact 后的完整结构：`[Human(摘要+续接指令), System(文件)..., System(Skills)...]`。（详见 spec/global/domains/compact.md#issue_2026-05-20-auto-compact-empty-messages-400）
 
@@ -169,6 +174,16 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 **[TRAP]** `Path::strip_prefix()` + `to_string_lossy()` 在 Windows 上产生 `\` 分隔符，sync 协议要求 `/`。`scan_dir_recursive()` 构造 `FileEntry.path` 时必须 `.replace('\\', "/")`。（详见 spec/global/domains/sync.md#issue_2026-05-20-windows-path-separator-breaks-tests）
 
 `peri sync` 子命令使用标准终端 CLI（crossterm 交互），不经过 TUI 主循环。
+
+## 文档目录
+
+| 目录 | 内容 |
+|------|------|
+| `docs/blogs/` | 技术博客（streaming-render、compact-mechanism、prompt-cache 等 11 篇） |
+| `docs/WRITING_STYLE.md` | 博客写作风格指南。写博客时必须参考此文件，khazix-writer skill 以此为依据 |
+| `docs/superpowers/specs/` | Superpowers 插件设计规范 |
+| `docs/superpowers/plans/` | Superpowers 插件实现计划 |
+| `docs/acp/` | ACP 协议文档（实现报告、协议差距分析） |
 
 ## 环境变量
 
@@ -197,9 +212,7 @@ session/new → frozen_date → frozen_claude_md + frozen_claude_local_md
 
 ## Beta 功能开关
 
-`settings.json` → `config.betas` 控制 beta 功能。所有字段默认 `false`。
-
-当前无活跃 beta 功能。
+`settings.json` → `config.betas` 控制 beta 功能。所有字段默认 `false`。当前无活跃 beta 功能。
 
 ## CLI 参数
 

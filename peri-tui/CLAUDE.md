@@ -66,17 +66,18 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ### 弹窗系统
 
-统一通过 `InteractionPrompt` 枚举互斥管理。4 种弹窗：
+统一通过 `InteractionPrompt` 枚举互斥管理。5 种弹窗：
 - **HITL 审批**（`popups/hitl.rs`）：批量工具调用逐个审批
 - **AskUser 问答**（`popups/ask_user.rs`）：Tab 栏切换 + 选项列表 + 自定义输入
 - **OAuth 授权**（`popups/oauth.rs`）：URL 显示 + 浏览器打开
 - **Setup Wizard**（`popups/setup_wizard.rs`）：首次配置向导
+- **Rewind 确认**（`popups/rewind.rs`）：双击 Esc 触发，确认后回滚到指定消息
 
 ### 面板系统
 
-12 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser（Session）；McpPanel、PluginPanel、CronPanel、TasksPanel、StatusPanel、MemoryPanel（Global）。
+13 种 `PanelKind`（分 Session/Global 作用域）：ModelPanel、LoginPanel、ConfigPanel、AgentPanel、HooksPanel、ThreadBrowser（Session）；McpPanel、PluginPanel、CronPanel、TasksPanel、StatusPanel、MemoryPanel、BetasPanel（Global）。
 
-互斥组（`MutexGroup`）：Settings（Model/Login/Config）、Agent（Agent/Hooks）、Tools（MCP/Plugin/Cron/Tasks）、Info（Status/Memory）、Thread（ThreadBrowser 独占）。
+互斥组（`MutexGroup`）：Settings（Model/Login/Config）、Agent（Agent/Hooks）、Tools（MCP/Plugin/Cron/Tasks）、Info（Status/Memory/Betas）、Thread（ThreadBrowser 独占）。
 
 `PanelManager` + `PanelComponent` trait（`panel_manager.rs`/`panel_component.rs`），新增面板只需定义变体 + 实现 trait。面板内禁止渲染提示行，由 `status_bar_hints()` 统一描述。
 
