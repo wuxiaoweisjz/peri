@@ -9,6 +9,17 @@ fn ai_read_file(tc_id: &str, path: &str) -> BaseMessage {
     )
 }
 
+fn ai_read_file_via_file_path(tc_id: &str, path: &str) -> BaseMessage {
+    BaseMessage::ai_with_tool_calls(
+        MessageContent::text("reading file"),
+        vec![ToolCallRequest::new(
+            tc_id,
+            "Read",
+            json!({"file_path": path}),
+        )],
+    )
+}
+
 fn ai_skill_preload(index: usize, skill_path: &str) -> BaseMessage {
     BaseMessage::ai_with_tool_calls(
         MessageContent::text(""),
@@ -76,6 +87,17 @@ fn test_extract_recent_files_basic() {
     ];
     let paths = extract_recent_files(&msgs, 2);
     assert_eq!(paths, vec!["/c.rs", "/b.rs"]);
+}
+
+#[test]
+fn test_extract_recent_files_via_file_path_param() {
+    // LLM 使用 "file_path" 参数名（Anthropic 风格）也能被提取
+    let msgs = vec![
+        ai_read_file_via_file_path("tc1", "/a.rs"),
+        ai_read_file_via_file_path("tc2", "/b.rs"),
+    ];
+    let paths = extract_recent_files(&msgs, 5);
+    assert_eq!(paths, vec!["/b.rs", "/a.rs"]);
 }
 
 #[test]

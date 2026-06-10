@@ -317,7 +317,9 @@ async fn test_full_compact_basic() {
     ];
     let model = MockBaseModel::new("## 摘要\n用户请求编写函数");
     let config = CompactConfig::default();
-    let result = full_compact(&msgs, &model, &config, "").await.unwrap();
+    let result = full_compact(&msgs, &model, &config, "", "/tmp")
+        .await
+        .unwrap();
     assert!(result.summary.contains("This session continues"));
     assert_eq!(result.messages_used, 3);
 }
@@ -326,7 +328,9 @@ async fn test_full_compact_basic() {
 async fn test_full_compact_empty_messages() {
     let model = MockBaseModel::new("summary");
     let config = CompactConfig::default();
-    let result = full_compact(&[], &model, &config, "").await.unwrap();
+    let result = full_compact(&[], &model, &config, "", "/tmp")
+        .await
+        .unwrap();
     assert!(result.summary.contains("No valid conversation history"));
     assert_eq!(result.messages_used, 0);
 }
@@ -336,7 +340,9 @@ async fn test_full_compact_system_only() {
     let msgs = vec![BaseMessage::system("old summary")];
     let model = MockBaseModel::new("summary");
     let config = CompactConfig::default();
-    let result = full_compact(&msgs, &model, &config, "").await.unwrap();
+    let result = full_compact(&msgs, &model, &config, "", "/tmp")
+        .await
+        .unwrap();
     assert!(result.summary.contains("No valid conversation history"));
     assert_eq!(result.messages_used, 1);
 }
@@ -346,7 +352,7 @@ async fn test_full_compact_with_instructions() {
     let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
     let model = MockBaseModel::new("summary with instructions");
     let config = CompactConfig::default();
-    let result = full_compact(&msgs, &model, &config, "请特别关注文件路径信息")
+    let result = full_compact(&msgs, &model, &config, "请特别关注文件路径信息", "/tmp")
         .await
         .unwrap();
     assert!(result.summary.contains("This session continues"));
@@ -367,7 +373,9 @@ async fn test_full_compact_ptl_retry_succeeds() {
         ptl_max_retries: 3,
         ..Default::default()
     };
-    let result = full_compact(&msgs, &model, &config, "").await.unwrap();
+    let result = full_compact(&msgs, &model, &config, "", "/tmp")
+        .await
+        .unwrap();
     assert!(result.summary.contains("摘要"));
     assert!(result.messages_used < msgs.len());
 }
@@ -380,7 +388,7 @@ async fn test_full_compact_ptl_retry_exhausted() {
         ptl_max_retries: 3,
         ..Default::default()
     };
-    let result = full_compact(&msgs, &model, &config, "").await;
+    let result = full_compact(&msgs, &model, &config, "", "/tmp").await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -407,7 +415,7 @@ async fn test_full_compact_non_ptl_error() {
         }
     }
     let config = CompactConfig::default();
-    let result = full_compact(&msgs, &FailModel, &config, "").await;
+    let result = full_compact(&msgs, &FailModel, &config, "", "/tmp").await;
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -420,7 +428,7 @@ async fn test_full_compact_empty_summary_rejected() {
     let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
     let model = MockBaseModel::new("");
     let config = CompactConfig::default();
-    let result = full_compact(&msgs, &model, &config, "").await;
+    let result = full_compact(&msgs, &model, &config, "", "/tmp").await;
     assert!(result.is_err(), "空摘要应被拒绝");
     assert!(
         result.unwrap_err().to_string().contains("空摘要"),
@@ -433,7 +441,7 @@ async fn test_full_compact_whitespace_only_summary_rejected() {
     let msgs = vec![BaseMessage::human("hello"), BaseMessage::ai("hi")];
     let model = MockBaseModel::new("   \n  \t  ");
     let config = CompactConfig::default();
-    let result = full_compact(&msgs, &model, &config, "").await;
+    let result = full_compact(&msgs, &model, &config, "", "/tmp").await;
     assert!(result.is_err(), "纯空白摘要应被拒绝");
 }
 
@@ -476,7 +484,7 @@ async fn test_full_compact_pure_tool_results() {
     let model = MockBaseModel::new("## 摘要\n用户执行了若干命令");
     let config = CompactConfig::default();
 
-    let result = full_compact(&msgs, &model, &config, "").await;
+    let result = full_compact(&msgs, &model, &config, "", "/tmp").await;
     assert!(result.is_ok(), "纯 ToolResult full_compact 应成功");
     let compact_result = result.unwrap();
 
@@ -528,7 +536,7 @@ async fn test_full_compact_pure_tool_results_request_contains_human() {
     };
     let config = CompactConfig::default();
 
-    let result = full_compact(&msgs, &model, &config, "").await;
+    let result = full_compact(&msgs, &model, &config, "", "/tmp").await;
     assert!(result.is_ok());
 
     // 请求体中应包含 Human 消息（full_compact 构建的摘要 prompt）

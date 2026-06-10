@@ -162,7 +162,7 @@ impl CompactMiddleware {
                 state.messages_mut().extend(own_messages);
                 return Ok(());
             }
-            result = full_compact(&own_messages, model.as_ref(), &self.config, "") => {
+            result = full_compact(&own_messages, model.as_ref(), &self.config, "", &self.cwd) => {
                 match result {
                     Ok(r) => r,
                     Err(e) => {

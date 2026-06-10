@@ -1,6 +1,6 @@
 # Full Compact 后 Agent 使用错误的项目路径前缀
 
-**状态**：Pending
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-06-07
 
@@ -54,6 +54,8 @@
 | 2026-06-07 | — | Open | agent | 创建 |
 | 2026-06-07 | Open | Fixed | agent | 修复 preprocess_messages 保留工具参数 |
 | 2026-06-07 | Fixed | Pending | agent | 等待用户验证 |
+| 2026-06-10 | Pending | Reopen | agent | 同类问题复现 |
+| 2026-06-10 | Reopen | Fixed | agent | 修复 #2：cwd 注入 + 提示词英文化 + file_path 参数兼容 |
 
 ## 修复记录
 
@@ -63,4 +65,16 @@
 - **用户原意**：compact 后 agent 不应丢失文件路径上下文
 - **修复内容**：在 `preprocess_messages` 中新增 `format_tool_call_summary` 函数，提取工具调用中的路径相关参数（`file_path`, `path`, `folder_path`, `command`, `pattern`），格式化为 `ToolName(field="value")` 形式纳入摘要 LLM 的输入
 - **涉及文件**：`peri-agent/src/agent/compact/full.rs`（+30 行），`peri-agent/src/agent/compact/full_test.rs`（+40 行）
+- **验证状态**：验证失败——同类问题复现
+
+### 修复 #2（2026-06-10）
+
+- **操作人**：agent
+- **用户原意**：compact 后 agent 不应丢失文件路径上下文
+- **修复内容**：
+  1. `full_compact()` 增加 `cwd` 参数，在摘要 LLM prompt 中注入 `Current working directory: {cwd}`，为摘要 LLM 提供路径锚点
+  2. SYSTEM_PROMPT / USER_PROMPT_TEMPLATE 改为英文，对齐 Claude Code 风格
+  3. `re_inject.rs` 的 `extract_recent_files()` 和 `extract_skills_paths()` 同时检查 `file_path` 和 `path` 两种参数名，兼容不同 LLM provider 的参数风格
+  4. 更新两条调用路径（auto-compact + manual `/compact`）传入 cwd
+- **涉及文件**：`full.rs`、`re_inject.rs`、`full_test.rs`、`re_inject_test.rs`、`compact_middleware.rs`、`compact.rs`
 - **验证状态**：待验证
