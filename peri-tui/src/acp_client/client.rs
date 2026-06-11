@@ -373,8 +373,7 @@ impl AcpTuiClient {
                 // No session yet — send via notification so ACP server updates its
                 // peri_config/provider before any session is created.
                 let params = json!({ "configId": config_id, "value": value });
-                let _ = self
-                    .transport
+                self.transport
                     .send_notification("session/config_update", params)
                     .await
                     .map_err(|e| e.to_string())?;
@@ -409,8 +408,7 @@ impl AcpTuiClient {
                 let params = json!({
                     "config": config,
                 });
-                let _ = self
-                    .transport
+                self.transport
                     .send_notification("session/config_update", params)
                     .await
                     .map_err(|e| e.to_string())?;
