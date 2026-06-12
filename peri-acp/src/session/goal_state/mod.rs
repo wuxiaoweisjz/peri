@@ -97,6 +97,50 @@ impl GoalState {
         Ok(())
     }
 
+    /// set_status（简化封装，reason 为空字符串）
+    pub async fn set_status(&self, target: GoalStatus) -> Result<(), String> {
+        self.set_status_with_reason(target, String::new()).await
+    }
+
+    /// set_status 附带 reason（Blocked 必填）
+    pub async fn set_status_with_reason(
+        &self,
+        target: GoalStatus,
+        reason: String,
+    ) -> Result<(), String> {
+        let (thread_id, store, goal_clone) = {
+            let mut guard = self.inner.write();
+            let goal = guard
+                .goal
+                .as_mut()
+                .ok_or_else(|| "无活跃 goal，无法 set_status".to_string())?;
+
+            if !goal.status.can_transition_to(&target) {
+                return Err(format!(
+                    "非法状态转换: {:?} → {:?}（终态不可恢复）",
+                    goal.status, target
+                ));
+            }
+
+            // Blocked 必须附带 reason
+            if matches!(target, GoalStatus::Blocked) && reason.trim().is_empty() {
+                return Err("Blocked 状态必须附带 reason".to_string());
+            }
+
+            goal.status = target;
+            goal.updated_at = chrono::Utc::now();
+            if matches!(target, GoalStatus::Blocked) {
+                goal.blocked_reason = Some(reason.clone());
+            }
+            let goal_clone = goal.clone();
+            (guard.thread_id.clone(), guard.store.clone(), goal_clone)
+        };
+
+        // best-effort store 写入（短锁已释放）
+        let _ = store.save(&thread_id, goal_clone).await;
+        Ok(())
+    }
+
     /// 只读快照（短锁，立即释放）
     pub fn snapshot(&self) -> GoalSnapshot {
         let guard = self.inner.read();

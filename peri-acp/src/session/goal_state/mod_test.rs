@@ -74,3 +74,58 @@ async fn test_store_写入失败_内存镜像仍可读() {
     assert!(result.is_err());
     assert_eq!(state.snapshot().objective.as_deref(), Some("fallback"));
 }
+
+#[tokio::test]
+async fn test_set_status_合法转换_active_to_paused() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+    assert_eq!(state.snapshot().status, Some(GoalStatus::Active));
+
+    state.set_status(GoalStatus::Paused).await.unwrap();
+    assert_eq!(state.snapshot().status, Some(GoalStatus::Paused));
+}
+
+#[tokio::test]
+async fn test_set_status_非法转换_complete_to_active_返回错误() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+    state.set_status(GoalStatus::Complete).await.unwrap();
+
+    let result = state.set_status(GoalStatus::Active).await;
+    assert!(result.is_err());
+    // 状态未改变
+    assert_eq!(state.snapshot().status, Some(GoalStatus::Complete));
+}
+
+#[tokio::test]
+async fn test_set_status_blocked_必须附带_reason() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+
+    let result = state.set_status(GoalStatus::Blocked).await;
+    assert!(result.is_err(), "Blocked 必须附带 reason");
+
+    state
+        .set_status_with_reason(GoalStatus::Blocked, "缺少依赖".to_string())
+        .await
+        .unwrap();
+    assert_eq!(state.snapshot().status, Some(GoalStatus::Blocked));
+}
+
+#[tokio::test]
+async fn test_set_status_无_goal_返回错误() {
+    let state = make_state();
+    let result = state.set_status(GoalStatus::Paused).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_resume_from_complete_返回错误() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+    state.set_status(GoalStatus::Complete).await.unwrap();
+
+    // Complete 是终态，不能 resume
+    let result = state.set_status(GoalStatus::Active).await;
+    assert!(result.is_err());
+}
