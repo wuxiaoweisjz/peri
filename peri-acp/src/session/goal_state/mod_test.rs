@@ -173,3 +173,76 @@ async fn test_set_status_paused_保留_pending_user_message() {
     state.set_status(GoalStatus::Paused).await.unwrap();
     assert_eq!(state.take_pending_user_message().as_deref(), Some("保留"));
 }
+
+#[tokio::test]
+async fn test_record_token_usage_累积到_pending() {
+    let state = make_state();
+    state
+        .set_goal("测试".to_string(), Some(200_000))
+        .await
+        .unwrap();
+
+    state.record_token_usage(1000);
+    state.record_token_usage(500);
+
+    // pending 累积 1500，但 snapshot 还没 flush
+    // snapshot 读取的是已 flush 的值，所以仍是 0
+    assert_eq!(state.snapshot().tokens_used, 0);
+}
+
+#[tokio::test]
+async fn test_flush_progress_写入_goal_accounting() {
+    let state = make_state();
+    state
+        .set_goal("测试".to_string(), Some(200_000))
+        .await
+        .unwrap();
+
+    state.record_token_usage(1500);
+    state.flush_progress().await.unwrap();
+
+    assert_eq!(state.snapshot().tokens_used, 1500);
+}
+
+#[tokio::test]
+async fn test_flush_progress_多次累加() {
+    let state = make_state();
+    state
+        .set_goal("测试".to_string(), Some(200_000))
+        .await
+        .unwrap();
+
+    state.record_token_usage(1000);
+    state.flush_progress().await.unwrap();
+    state.record_token_usage(500);
+    state.flush_progress().await.unwrap();
+
+    assert_eq!(state.snapshot().tokens_used, 1500);
+}
+
+#[tokio::test]
+async fn test_record_time_usage_累积并_flush() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+
+    state.record_time_usage(30);
+    state.record_time_usage(15);
+    state.flush_progress().await.unwrap();
+
+    assert_eq!(state.snapshot().time_used_seconds, 45);
+}
+
+#[tokio::test]
+async fn test_usage_pct_基于_flushed_值() {
+    let state = make_state();
+    state
+        .set_goal("测试".to_string(), Some(200_000))
+        .await
+        .unwrap();
+
+    state.record_token_usage(160_000);
+    state.flush_progress().await.unwrap();
+
+    let snap = state.snapshot();
+    assert!((snap.usage_pct().unwrap() - 0.8).abs() < 0.01);
+}

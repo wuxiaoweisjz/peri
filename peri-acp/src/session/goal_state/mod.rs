@@ -29,6 +29,13 @@ impl GoalSnapshot {
     pub fn has_active_goal(&self) -> bool {
         self.status == Some(GoalStatus::Active)
     }
+
+    /// usage 百分比（0.0-1.0），budget=None 或 0 时返回 None
+    pub fn usage_pct(&self) -> Option<f32> {
+        self.token_budget
+            .filter(|&b| b > 0)
+            .map(|b| self.tokens_used as f32 / b as f32)
+    }
 }
 
 /// 内部可变状态（受 RwLock 保护）
@@ -40,6 +47,10 @@ struct GoalStateInner {
     thread_id: String,
     /// 机制 3：continuation 期间用户消息缓冲（多条覆盖，只保留最后一条）
     pending_user_message: Option<String>,
+    /// 待 flush 的 token 增量
+    pending_token_delta: u64,
+    /// 待 flush 的 time 增量（秒）
+    pending_time_delta_seconds: u64,
 }
 
 /// 并发安全的状态句柄
@@ -57,6 +68,8 @@ impl GoalState {
                 store,
                 thread_id,
                 pending_user_message: None,
+                pending_token_delta: 0,
+                pending_time_delta_seconds: 0,
             })),
         }
     }
@@ -185,6 +198,41 @@ impl GoalState {
     /// 机制 3：取出并清空用户消息
     pub fn take_pending_user_message(&self) -> Option<String> {
         self.inner.write().pending_user_message.take()
+    }
+
+    /// 记录 token 增量到 pending 缓冲
+    pub fn record_token_usage(&self, delta: u64) {
+        self.inner.write().pending_token_delta += delta;
+    }
+
+    /// 记录时间增量到 pending 缓冲
+    pub fn record_time_usage(&self, delta_seconds: u64) {
+        self.inner.write().pending_time_delta_seconds += delta_seconds;
+    }
+
+    /// flush：将 pending 增量累加到 goal.accounting 并写 store
+    pub async fn flush_progress(&self) -> Result<(), String> {
+        let (thread_id, store, goal_clone) = {
+            let mut guard = self.inner.write();
+            let token_delta = std::mem::take(&mut guard.pending_token_delta);
+            let time_delta = std::mem::take(&mut guard.pending_time_delta_seconds);
+
+            let goal = match guard.goal.as_mut() {
+                Some(g) => g,
+                None => return Ok(()), // 无 goal，no-op
+            };
+
+            goal.accounting.tokens_used += token_delta;
+            goal.accounting.time_used_seconds += time_delta;
+            goal.updated_at = chrono::Utc::now();
+
+            let goal_clone = goal.clone();
+            (guard.thread_id.clone(), guard.store.clone(), goal_clone)
+        };
+
+        // best-effort store 写入（短锁已释放）
+        let _ = store.save(&thread_id, goal_clone).await;
+        Ok(())
     }
 }
 
