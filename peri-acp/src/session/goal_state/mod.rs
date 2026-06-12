@@ -236,6 +236,23 @@ impl GoalState {
     }
 }
 
+impl peri_agent::goal::GoalStateView for GoalState {
+    fn snapshot(&self) -> peri_agent::goal::GoalViewSnapshot {
+        let snap = self.snapshot();
+        peri_agent::goal::GoalViewSnapshot {
+            objective: snap.objective,
+            status: snap.status,
+            token_budget: snap.token_budget,
+            tokens_used: snap.tokens_used,
+            objective_just_updated: snap.objective_just_updated,
+        }
+    }
+
+    fn consume_objective_updated(&self) -> bool {
+        self.consume_objective_updated()
+    }
+}
+
 #[cfg(test)]
 #[path = "mod_test.rs"]
 mod tests;

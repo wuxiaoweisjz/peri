@@ -5,6 +5,8 @@
 
 pub mod model;
 pub mod store;
+pub mod view;
 
 pub use model::{GoalAccounting, GoalStatus, ThreadGoal};
 pub use store::{GoalStore, GoalStoreError, InMemoryGoalStore};
+pub use view::{GoalStateView, GoalViewSnapshot};

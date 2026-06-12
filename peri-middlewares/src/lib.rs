@@ -21,6 +21,7 @@ pub mod agent_define;
 pub mod agents_md;
 pub mod claude_agent_parser;
 pub mod compact_middleware;
+pub mod goal_middleware;
 pub mod subagent;
 pub use claude_agent_parser::{
     format_agent_id, parse_agent_file, ClaudeAgent, ClaudeAgentFrontmatter, ToolsValue,
@@ -57,6 +58,7 @@ pub use ask_user::{
 pub use at_mention::AtMentionMiddleware;
 pub use attribution::GitAttributionMiddleware;
 pub use cron::{CronMiddleware, CronScheduler, CronTask, CronTrigger};
+pub use goal_middleware::GoalMiddleware;
 pub use hitl::{
     default_requires_approval, effective_tool_name, is_yolo_mode, AutoClassifier, BatchItem,
     Classification, HitlDecision, HumanInTheLoopMiddleware, LlmAutoClassifier, PermissionMode,
