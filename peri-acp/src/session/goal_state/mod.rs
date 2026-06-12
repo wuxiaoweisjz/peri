@@ -38,6 +38,8 @@ struct GoalStateInner {
     objective_just_updated: bool,
     store: Arc<dyn GoalStore>,
     thread_id: String,
+    /// 机制 3：continuation 期间用户消息缓冲（多条覆盖，只保留最后一条）
+    pending_user_message: Option<String>,
 }
 
 /// 并发安全的状态句柄
@@ -54,6 +56,7 @@ impl GoalState {
                 objective_just_updated: false,
                 store,
                 thread_id,
+                pending_user_message: None,
             })),
         }
     }
@@ -87,6 +90,7 @@ impl GoalState {
             let mut guard = self.inner.write();
             guard.goal = None;
             guard.objective_just_updated = false;
+            guard.pending_user_message = None;
             (guard.thread_id.clone(), guard.store.clone())
         };
 
@@ -133,6 +137,10 @@ impl GoalState {
                 goal.blocked_reason = Some(reason.clone());
             }
             let goal_clone = goal.clone();
+            // 终态清零 pending_user_message（终态不需要用户消息）
+            if target.is_terminal() {
+                guard.pending_user_message = None;
+            }
             (guard.thread_id.clone(), guard.store.clone(), goal_clone)
         };
 
@@ -167,6 +175,16 @@ impl GoalState {
         let was_set = guard.objective_just_updated;
         guard.objective_just_updated = false;
         was_set
+    }
+
+    /// 机制 3：写入用户消息（覆盖旧值）
+    pub fn put_pending_user_message(&self, message: String) {
+        self.inner.write().pending_user_message = Some(message);
+    }
+
+    /// 机制 3：取出并清空用户消息
+    pub fn take_pending_user_message(&self) -> Option<String> {
+        self.inner.write().pending_user_message.take()
     }
 }
 

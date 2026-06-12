@@ -129,3 +129,47 @@ async fn test_resume_from_complete_返回错误() {
     let result = state.set_status(GoalStatus::Active).await;
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn test_put_pending_user_message_覆盖旧值() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+
+    state.put_pending_user_message("第一条".to_string());
+    state.put_pending_user_message("第二条".to_string());
+
+    let taken = state.take_pending_user_message();
+    assert_eq!(taken.as_deref(), Some("第二条"));
+    // take 后清空
+    assert!(state.take_pending_user_message().is_none());
+}
+
+#[tokio::test]
+async fn test_clear_goal_清零_pending_user_message() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+    state.put_pending_user_message("待清空".to_string());
+
+    state.clear().await.unwrap();
+    assert!(state.take_pending_user_message().is_none());
+}
+
+#[tokio::test]
+async fn test_set_status_complete_清零_pending_user_message() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+    state.put_pending_user_message("待清空".to_string());
+
+    state.set_status(GoalStatus::Complete).await.unwrap();
+    assert!(state.take_pending_user_message().is_none());
+}
+
+#[tokio::test]
+async fn test_set_status_paused_保留_pending_user_message() {
+    let state = make_state();
+    state.set_goal("测试".to_string(), None).await.unwrap();
+    state.put_pending_user_message("保留".to_string());
+
+    state.set_status(GoalStatus::Paused).await.unwrap();
+    assert_eq!(state.take_pending_user_message().as_deref(), Some("保留"));
+}
