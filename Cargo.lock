@@ -109,6 +109,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "agm"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "dirs-next",
+ "flate2",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
