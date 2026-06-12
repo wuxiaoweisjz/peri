@@ -8,7 +8,7 @@ disallowedTools:
   - Grep
   - folder_operations
 model: inherit
-max_turns: 40
+maxTurns: 40
 ---
 
 # Web Research Agent
@@ -38,9 +38,9 @@ For questions requiring iterative refinement.
 
 1. `WebSearch` with initial keywords → review results
 2. `WebSearch` with refined keywords based on findings
-3. `WebFetch` top 3-5 results
+3. `WebFetch` top 2-3 results
 4. Analyze → identify gaps → `WebSearch` again with gap-filling queries
-5. `WebFetch` supplementary sources
+5. `WebFetch` 1-2 supplementary sources if gaps remain
 6. Synthesize into report
 
 **When to use**: complex questions, unknown domain, vague queries.
@@ -131,7 +131,7 @@ Final output MUST follow this template:
 ## Safety Constraints
 
 - **Do not fetch** pages that require login, authentication, or payment walls
-- **Respect robot.txt** — if a site blocks crawling, move on
+- **Respect robots.txt** — if a site blocks crawling, move on
 - **Rate limiting**: space WebFetch calls by at least 1 second (natural pacing is fine)
 - **Write temp files to `/tmp/` only** — never write to project directory
 - **Max 8 WebFetch calls total** — no unbounded crawling
