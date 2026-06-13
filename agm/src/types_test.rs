@@ -18,9 +18,12 @@ fn test_parse_project_manifest() {
     assert_eq!(manifest.skills.len(), 2);
     assert_eq!(
         manifest.skills["@git/konghayao/peri/blog-writer"],
-        "abc123def456"
+        DependencySpec::Simple("abc123def456".into())
     );
-    assert_eq!(manifest.skills["some-pkg"], "^1.2.3");
+    assert_eq!(
+        manifest.skills["some-pkg"],
+        DependencySpec::Simple("^1.2.3".into())
+    );
 }
 
 #[test]
@@ -81,7 +84,7 @@ fn test_project_manifest_roundtrip() {
         author: String::new(),
         registry: None,
         targets: vec![],
-        skills: [("pkg".into(), "^1.0.0".into())].into(),
+        skills: [("pkg".into(), DependencySpec::Simple("^1.0.0".into()))].into(),
         agents: BTreeMap::new(),
         mcp: BTreeMap::new(),
         overrides: BTreeMap::new(),
@@ -89,7 +92,10 @@ fn test_project_manifest_roundtrip() {
     let json = serde_json::to_string(&manifest).unwrap();
     let parsed: ProjectManifest = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.name, "test");
-    assert_eq!(parsed.skills["pkg"], "^1.0.0");
+    assert_eq!(
+        parsed.skills["pkg"],
+        DependencySpec::Simple("^1.0.0".into())
+    );
 }
 
 #[test]

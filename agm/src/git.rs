@@ -99,7 +99,11 @@ pub fn resolve_head(repo_url: &str) -> Result<String> {
         .ok_or_else(|| AgmError::Git("failed to parse HEAD from ls-remote output".into()))
 }
 
-/// Parse owner/repo from a GitHub URL
+/// Parse owner/repo from a GitHub URL or a local filesystem path.
+///
+/// For HTTPS URLs: `https://github.com/owner/repo` -> `(owner, repo)`.
+/// For local paths: the last two path components are treated as `owner/repo`,
+/// allowing tests and local workflows to use `agm install --git /path/to/owner/repo`.
 pub fn parse_github_url(url: &str) -> Option<(String, String)> {
     let url = url.trim_end_matches('/').trim_end_matches(".git");
     // https://github.com/owner/repo
@@ -109,5 +113,18 @@ pub fn parse_github_url(url: &str) -> Option<(String, String)> {
             return Some((parts[0].to_string(), parts[1].to_string()));
         }
     }
+
+    // Local filesystem path (no scheme). Use the last two components as owner/repo.
+    if !url.contains("://") {
+        let clean = url.strip_prefix("file://").unwrap_or(url);
+        let parts: Vec<&str> = clean.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+        if parts.len() >= 2 {
+            return Some((
+                parts[parts.len() - 2].to_string(),
+                parts[parts.len() - 1].to_string(),
+            ));
+        }
+    }
+
     None
 }

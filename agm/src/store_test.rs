@@ -3,6 +3,27 @@ use crate::types::*;
 use std::path::PathBuf;
 
 #[test]
+fn test_manifest_parses_detailed_dependency() {
+    use crate::types::{DependencySpec, ProjectManifest};
+
+    let json = r#"{
+        "name": "test",
+        "skills": {
+            "some-pkg": {
+                "version": "^1.0.0",
+                "pick": ["interview", "grill-*"],
+                "omit": ["**/*-test"]
+            }
+        }
+    }"#;
+
+    let manifest: ProjectManifest = serde_json::from_str(json).unwrap();
+    let spec = manifest.skills.get("some-pkg").unwrap();
+    assert!(matches!(spec, DependencySpec::Detailed { .. }));
+    assert_eq!(spec.version(), "^1.0.0");
+}
+
+#[test]
 fn test_git_package_path() {
     let store = Store::new(PathBuf::from("/tmp/agm-store"));
     let path = store.git_package_path("https://github.com/user/repo", "abc123def456");
