@@ -63,13 +63,43 @@ agm.lock.json     # Lock file — exact versions resolved
   "targets": ["claude"],
   "skills": {
     "@git/obra/superpowers": "6fd4507...",
-    "some-registry-pkg": "^1.0.0"
+    "some-registry-pkg": "^1.0.0",
+    "@git/obra/another-repo": {
+      "version": "abc1234...",
+      "pick": ["grill-*", "interview"],
+      "omit": ["**/*-test"]
+    }
   },
   "agents": {},
   "mcp": {},
   "overrides": {}
 }
 ```
+
+### Pick / Omit
+
+Large repositories can expose many skills/agents. Use `pick` and `omit` with glob patterns to install only what you need:
+
+- `pick` — only install items matching any of these globs.
+- `omit` — exclude items matching any of these globs.
+- Both are optional arrays; when both are present, `pick` is applied first, then `omit`.
+- Patterns match both the item directory name (e.g., `grill-me`) and its relative path inside the package (e.g., `skills/engineering/*`).
+
+Example: install only `grill-*` and `interview`, but exclude anything ending in `-test`.
+
+```json
+{
+  "skills": {
+    "@git/obra/superpowers": {
+      "version": "6fd4507...",
+      "pick": ["grill-*", "interview"],
+      "omit": ["**/*-test"]
+    }
+  }
+}
+```
+
+Re-running `agm install` after changing `pick`/`omit` will remove stale symlinks and create new ones to match the updated filters.
 
 ## Supported Tools
 
