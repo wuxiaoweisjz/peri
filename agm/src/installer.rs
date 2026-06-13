@@ -313,18 +313,53 @@ impl InstallContext {
 }
 
 /// Remove existing symlinks in `target_dir` that point into `store_path`.
-fn remove_package_symlinks(target_dir: &Path, store_path: &Path) -> Result<()> {
+///
+/// Uses canonicalized paths when possible so the comparison works on Windows
+/// even when symlinks are resolved to short/long path variants. Directory
+/// symlinks on Windows are removed with `remove_dir` to avoid following the
+/// link and deleting the target contents.
+pub(crate) fn remove_package_symlinks(target_dir: &Path, store_path: &Path) -> Result<()> {
     if !target_dir.exists() {
         return Ok(());
     }
+
+    let canonical_store = std::fs::canonicalize(store_path).ok();
+
     for entry in std::fs::read_dir(target_dir)? {
         let entry = entry?;
         let path = entry.path();
         if let Ok(target) = std::fs::read_link(&path) {
-            if target.starts_with(store_path) {
-                std::fs::remove_file(&path)?;
+            let belongs = match canonical_store {
+                Some(ref store) => std::fs::canonicalize(&target)
+                    .map(|t| t.starts_with(store))
+                    .unwrap_or(false),
+                None => target.starts_with(store_path),
+            };
+
+            if belongs {
+                remove_symlink_or_dir(&path)?;
             }
         }
+    }
+    Ok(())
+}
+
+/// Remove a path that may be a symlink, a regular file, or a directory.
+fn remove_symlink_or_dir(path: &Path) -> Result<()> {
+    if path.is_symlink() {
+        // On Windows directory symlinks must be removed with remove_dir;
+        // on Unix remove_file works for all symlinks.
+        #[cfg(windows)]
+        {
+            if path.is_dir() {
+                return std::fs::remove_dir(path).map_err(Into::into);
+            }
+        }
+        std::fs::remove_file(path)?;
+    } else if path.is_file() {
+        std::fs::remove_file(path)?;
+    } else if path.is_dir() {
+        std::fs::remove_dir_all(path)?;
     }
     Ok(())
 }
@@ -593,4 +628,9 @@ fn extract_tarball(tarball_path: &Path, dest: &Path) -> Result<()> {
     let mut archive = tar::Archive::new(decoder);
     archive.unpack(dest)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    include!("installer_test.rs");
 }
