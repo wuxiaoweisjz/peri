@@ -36,12 +36,12 @@ pub fn execute(project_dir: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn print_section(label: &str, deps: &BTreeMap<String, String>, lock: &Option<LockFile>) {
+fn print_section(label: &str, deps: &BTreeMap<String, DependencySpec>, lock: &Option<LockFile>) {
     if deps.is_empty() {
         return;
     }
     println!("[{}]", label);
-    for (name, version) in deps {
+    for (name, spec) in deps {
         let source = if is_git_dep(name) { "git" } else { "registry" };
         let installed = lock.as_ref().and_then(|l| {
             l.packages
@@ -50,15 +50,43 @@ fn print_section(label: &str, deps: &BTreeMap<String, String>, lock: &Option<Loc
                 .map(|(_, p)| p.targets.join(", "))
         });
 
+        let filters = match spec {
+            DependencySpec::Simple(_) => String::new(),
+            DependencySpec::Detailed { pick, omit, .. } => {
+                let mut parts = Vec::new();
+                if !pick.is_empty() {
+                    parts.push(format!("pick=[{}]", pick.join(", ")));
+                }
+                if !omit.is_empty() {
+                    parts.push(format!("omit=[{}]", omit.join(", ")));
+                }
+                if parts.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", parts.join(" "))
+                }
+            }
+        };
+
         match installed {
             Some(targets) if !targets.is_empty() => {
                 println!(
-                    "  ✓ {} {} ({}) [installed: {}]",
-                    name, version, source, targets
+                    "  ✓ {} {} ({}) [installed: {}]{}",
+                    name,
+                    spec.version(),
+                    source,
+                    targets,
+                    filters
                 );
             }
             _ => {
-                println!("  ✗ {} {} ({}) [pending]", name, version, source);
+                println!(
+                    "  ✗ {} {} ({}) [pending]{}",
+                    name,
+                    spec.version(),
+                    source,
+                    filters
+                );
             }
         }
     }

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod error;
+pub mod filter;
 pub mod types;
 pub use error::{AgmError, Result};
 
@@ -16,6 +17,9 @@ mod config_test;
 
 #[cfg(test)]
 mod types_test;
+
+#[cfg(test)]
+mod filter_test;
 
 #[cfg(test)]
 mod store_test;

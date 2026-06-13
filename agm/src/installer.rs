@@ -1,17 +1,16 @@
 use crate::adapter::*;
 use crate::config::AgmConfig;
 use crate::error::{AgmError, Result};
+use crate::filter::{auto_detect_types, detect_package_items, extract_skill_name, filter_items};
 use crate::git;
 use crate::registry::RegistryClient;
 use crate::resolver::*;
 use crate::store::*;
+use crate::types::DependencySpec;
 use crate::types::*;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tokio::runtime::Runtime;
-
-/// Auto-detection results: (skills, agents), each element is a (name, glob) pair, glob is relative path in store
-type DetectedTypes = (Vec<(String, String)>, Vec<(String, String)>);
 
 /// Installation context
 pub struct InstallContext {
@@ -75,10 +74,10 @@ impl InstallContext {
         let head_commit = git::resolve_head(repo_url)?;
         let store_path = self.store.git_package_path(repo_url, &head_commit);
 
-        let (skills, agents, store_path, actual_commit, resolution) = if store_path.exists() {
+        let (skills, agents, mcp, store_path, actual_commit, resolution) = if store_path.exists() {
             println!("  (already in store, skipping clone)");
             let pkg_manifest_path = store_path.join("agm.package.json");
-            let (skills, agents) = if pkg_manifest_path.exists() {
+            let (skills, agents, mcp) = if pkg_manifest_path.exists() {
                 let pkg = PackageManifest::load(&pkg_manifest_path)?;
                 let skills: Vec<_> = pkg
                     .skills
@@ -96,15 +95,31 @@ impl InstallContext {
                         (n, g)
                     })
                     .collect();
-                (skills, agents)
+                let mcp: Vec<_> = pkg
+                    .mcp
+                    .into_iter()
+                    .map(|g| {
+                        let n = extract_skill_name(&g);
+                        (n, g)
+                    })
+                    .collect();
+                (skills, agents, mcp)
             } else {
-                self.auto_detect_types(&store_path)
+                let (skills, agents, _) = auto_detect_types(&store_path);
+                (skills, agents, Vec::new())
             };
             let resolution = Resolution::Git {
                 repo: repo_url.to_string(),
                 commit: head_commit.clone(),
             };
-            (skills, agents, store_path, head_commit.clone(), resolution)
+            (
+                skills,
+                agents,
+                mcp,
+                store_path,
+                head_commit.clone(),
+                resolution,
+            )
         } else {
             let temp_dir = self.temp_dir()?;
             let cloned_commit = git::clone_head(repo_url, temp_dir.path())?;
@@ -119,7 +134,7 @@ impl InstallContext {
             }
 
             let pkg_manifest_path = temp_dir.path().join("agm.package.json");
-            let (skills, agents) = if pkg_manifest_path.exists() {
+            let (skills, agents, mcp) = if pkg_manifest_path.exists() {
                 let pkg = PackageManifest::load(&pkg_manifest_path)?;
                 let skills: Vec<_> = pkg
                     .skills
@@ -137,9 +152,18 @@ impl InstallContext {
                         (n, g)
                     })
                     .collect();
-                (skills, agents)
+                let mcp: Vec<_> = pkg
+                    .mcp
+                    .into_iter()
+                    .map(|g| {
+                        let n = extract_skill_name(&g);
+                        (n, g)
+                    })
+                    .collect();
+                (skills, agents, mcp)
             } else {
-                self.auto_detect_types(temp_dir.path())
+                let (skills, agents, _) = auto_detect_types(temp_dir.path());
+                (skills, agents, Vec::new())
             };
 
             let resolution = Resolution::Git {
@@ -154,10 +178,42 @@ impl InstallContext {
                 &cloned_commit,
             )?;
             let _ = temp_dir.close();
-            (skills, agents, store_path, cloned_commit, resolution)
+            (skills, agents, mcp, store_path, cloned_commit, resolution)
         };
 
+        let final_spec = self
+            .manifest
+            .skills
+            .get(&pkg_name)
+            .or_else(|| self.manifest.agents.get(&pkg_name))
+            .or_else(|| self.manifest.mcp.get(&pkg_name))
+            .cloned()
+            .unwrap_or_else(|| DependencySpec::Simple(actual_commit.clone()));
+
+        let skills = filter_items(&skills, &final_spec)?;
+        let agents = filter_items(&agents, &final_spec)?;
+        let mcp = filter_items(&mcp, &final_spec)?;
+
+        if skills.is_empty()
+            && agents.is_empty()
+            && mcp.is_empty()
+            && !matches!(final_spec, DependencySpec::Simple(_))
+        {
+            println!(
+                "  (no skills/agents/mcp matched pick/omit filters for {})",
+                pkg_name
+            );
+        }
+
         let mut installed = Vec::new();
+
+        // Remove stale symlinks from a previous install of this package
+        let skills_target = adapter.map_dir(PackageType::Skills, &self.project_root);
+        remove_package_symlinks(&skills_target, &store_path)?;
+        let agents_target = adapter.map_dir(PackageType::Agents, &self.project_root);
+        remove_package_symlinks(&agents_target, &store_path)?;
+        let mcp_target = adapter.map_dir(PackageType::Mcp, &self.project_root);
+        remove_package_symlinks(&mcp_target, &store_path)?;
 
         // Create symlinks for skills
         for (skill_name, skill_glob) in &skills {
@@ -173,10 +229,6 @@ impl InstallContext {
                     "  ✓ skill: {} → .{}/skills/{}",
                     skill_name, self.target, link_name
                 );
-                self.manifest
-                    .skills
-                    .insert(pkg_name.clone(), actual_commit.clone());
-                installed.push((pkg_name.clone(), actual_commit.clone(), resolution.clone()));
             }
         }
 
@@ -193,105 +245,95 @@ impl InstallContext {
                     "  ✓ agent: {} → .{}/agents/{}",
                     agent_name, self.target, link_name
                 );
-                self.manifest
-                    .agents
-                    .insert(pkg_name.clone(), actual_commit.clone());
-                if !installed.iter().any(|(n, _, _)| n == &pkg_name) {
-                    installed.push((pkg_name.clone(), actual_commit.clone(), resolution.clone()));
-                }
             }
         }
 
-        if skills.is_empty() && agents.is_empty() {
-            println!("No skills or agents found in the repo. If the repo has an agm.package.json, it should declare exports.");
+        // Create symlinks for MCP items
+        for (mcp_name, mcp_glob) in &mcp {
+            let target_dir = adapter.map_dir(PackageType::Mcp, &self.project_root);
+            let link_name = symlink_name(mcp_name, &[]);
+            let store_mcp_path = store_path.join(mcp_glob);
+            if store_mcp_path.exists() {
+                adapter
+                    .install(&store_mcp_path, &target_dir, &link_name)
+                    .map_err(|e| AgmError::Other(format!("symlink mcp {}: {}", mcp_name, e)))?;
+                println!("  ✓ mcp: {} → .{}/mcp/{}", mcp_name, self.target, link_name);
+            }
         }
 
-        // Save agm.json
-        let manifest_path = self.project_root.join("agm.json");
-        self.manifest
-            .save(&manifest_path)
-            .map_err(|e| AgmError::Other(format!("save agm.json: {}", e)))?;
+        if !skills.is_empty() {
+            self.manifest
+                .skills
+                .insert(pkg_name.clone(), final_spec.clone());
+        }
+        if !agents.is_empty() {
+            self.manifest
+                .agents
+                .insert(pkg_name.clone(), final_spec.clone());
+        }
+        if !mcp.is_empty() {
+            self.manifest
+                .mcp
+                .insert(pkg_name.clone(), final_spec.clone());
+        }
+        if !skills.is_empty() || !agents.is_empty() || !mcp.is_empty() {
+            installed.push((pkg_name.clone(), actual_commit.clone(), resolution.clone()));
+        }
 
-        // Update lock file
-        self.update_lock(&installed)
-            .map_err(|e| AgmError::Other(format!("update lock: {}", e)))?;
+        if skills.is_empty() && agents.is_empty() && mcp.is_empty() {
+            println!("No skills, agents, or mcp found in the repo. If the repo has an agm.package.json, it should declare exports.");
+        }
+
+        if !installed.is_empty() {
+            // Save agm.json
+            let manifest_path = self.project_root.join("agm.json");
+            self.manifest
+                .save(&manifest_path)
+                .map_err(|e| AgmError::Other(format!("save agm.json: {}", e)))?;
+
+            // Update lock file
+            self.update_lock(&installed)
+                .map_err(|e| AgmError::Other(format!("update lock: {}", e)))?;
+        }
 
         adapter
             .post_install()
             .map_err(|e| AgmError::Other(format!("post_install: {}", e)))?;
         Ok(())
     }
+}
 
-    /// Auto-detect skills and agents in a repo (when no agm.package.json)
-    /// Returns (name, glob) pairs, glob is relative path in store
-    fn auto_detect_types(&self, repo_root: &Path) -> DetectedTypes {
-        let mut skills: Vec<(String, String)> = Vec::new();
-        let mut agents: Vec<(String, String)> = Vec::new();
-
-        // Detect .{tool}/skills/**/SKILL.md (supports nested categories via recursion)
-        for tool_prefix in &[".claude", ""] {
-            let skills_dir = if tool_prefix.is_empty() {
-                repo_root.join("skills")
-            } else {
-                repo_root.join(tool_prefix).join("skills")
-            };
-            skills.extend(find_skills_recursive(&skills_dir, repo_root));
-
-            // Detect .{tool}/agents/*.md
-            let agents_dir = if tool_prefix.is_empty() {
-                repo_root.join("agents")
-            } else {
-                repo_root.join(tool_prefix).join("agents")
-            };
-            if let Ok(entries) = std::fs::read_dir(&agents_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() && path.extension().is_some_and(|e| e == "md") {
-                        let name = path.file_stem().unwrap().to_string_lossy().to_string();
-                        let prefix = if tool_prefix.is_empty() {
-                            "agents".to_string()
-                        } else {
-                            format!("{}/agents", tool_prefix)
-                        };
-                        let glob = format!("{}/{}.md", prefix, name);
-                        tracing::info!("auto-detected agent: {} ({})", name, glob);
-                        agents.push((name, glob));
-                    }
-                }
+/// Remove existing symlinks in `target_dir` that point into `store_path`.
+fn remove_package_symlinks(target_dir: &Path, store_path: &Path) -> Result<()> {
+    if !target_dir.exists() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(target_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if let Ok(target) = std::fs::read_link(&path) {
+            if target.starts_with(store_path) {
+                std::fs::remove_file(&path)?;
             }
         }
+    }
+    Ok(())
+}
 
-        (skills, agents)
+fn typ_label(typ: PackageType) -> &'static str {
+    match typ {
+        PackageType::Skills => "skill",
+        PackageType::Agents => "agent",
+        PackageType::Mcp => "mcp",
     }
 }
 
-/// Recursively find directories containing SKILL.md, supporting nested categories
-/// (e.g., skills/engineering/grill-me/SKILL.md)
-/// Returns (skill_name, path relative to repo_root)
-fn find_skills_recursive(base_dir: &Path, repo_root: &Path) -> Vec<(String, String)> {
-    let mut result = Vec::new();
-    let entries = match std::fs::read_dir(base_dir) {
-        Ok(e) => e,
-        Err(_) => return result,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let skill_md = path.join("SKILL.md");
-        if skill_md.exists() {
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
-            let rel = skill_md.strip_prefix(repo_root).unwrap_or(&skill_md);
-            let glob = rel.to_string_lossy().to_string();
-            tracing::info!("auto-detected skill: {} ({})", name, glob);
-            result.push((name, glob));
-        } else {
-            // Recurse into subdirectories (e.g., skills/engineering/, skills/productivity/)
-            result.extend(find_skills_recursive(&path, repo_root));
-        }
+fn typ_subdir(typ: PackageType) -> &'static str {
+    match typ {
+        PackageType::Skills => "skills",
+        PackageType::Agents => "agents",
+        PackageType::Mcp => "mcp",
     }
-    result
 }
 
 impl InstallContext {
@@ -320,17 +362,19 @@ impl InstallContext {
         for typ in &types {
             let deps_of_type: Vec<_> = deps.iter().filter(|(_, _, t)| t == typ).collect();
 
-            for (name, version, _) in &deps_of_type {
+            for (name, spec, _) in &deps_of_type {
                 let lock_version: String;
                 let resolution;
 
                 if is_git_dep(name) {
-                    validate_commit_hash(version)?;
-                    lock_version = version.clone();
+                    validate_commit_hash(spec.version())?;
+                    lock_version = spec.version().to_string();
 
                     let pkg_key = format!("{}@{}", name, lock_version);
                     if let Some(lock) = &self.lock {
-                        if lock.packages.contains_key(&pkg_key) {
+                        if lock.packages.contains_key(&pkg_key)
+                            && matches!(spec, DependencySpec::Simple(_))
+                        {
                             continue;
                         }
                     }
@@ -338,23 +382,34 @@ impl InstallContext {
                     let temp_dir = self.temp_dir()?;
                     let repo_url =
                         format!("https://github.com/{}", name.trim_start_matches("@git/"));
-                    git::clone_at_commit(&repo_url, version, temp_dir.path())?;
+                    git::clone_at_commit(&repo_url, spec.version(), temp_dir.path())?;
 
                     resolution = Resolution::Git {
                         repo: repo_url,
-                        commit: version.clone(),
+                        commit: spec.version().to_string(),
                     };
 
-                    install_to_store(&self.store, temp_dir.path(), &resolution, name, version)?;
+                    install_to_store(
+                        &self.store,
+                        temp_dir.path(),
+                        &resolution,
+                        name,
+                        spec.version(),
+                    )?;
                     let _ = temp_dir.close();
                 } else {
-                    let resolved_version =
-                        rt.block_on(resolve_registry_version(&registry_client, name, version))?;
+                    let resolved_version = rt.block_on(resolve_registry_version(
+                        &registry_client,
+                        name,
+                        spec.version(),
+                    ))?;
                     lock_version = resolved_version.clone();
 
                     let pkg_key = format!("{}@{}", name, lock_version);
                     if let Some(lock) = &self.lock {
-                        if lock.packages.contains_key(&pkg_key) {
+                        if lock.packages.contains_key(&pkg_key)
+                            && matches!(spec, DependencySpec::Simple(_))
+                        {
                             continue;
                         }
                     }
@@ -387,9 +442,6 @@ impl InstallContext {
                     )?;
                 }
 
-                // Create symlink
-                let target_dir = adapter.map_dir(*typ, &self.project_root);
-                let link_name = symlink_name(name, &[]);
                 let store_path = match &resolution {
                     Resolution::Git { repo, commit, .. } => {
                         self.store.git_package_path(repo, commit)
@@ -398,7 +450,70 @@ impl InstallContext {
                         self.store.registry_package_path(name, &lock_version)
                     }
                 };
-                adapter.install(&store_path, &target_dir, &link_name)?;
+
+                // Detect and filter items
+                let (items, target_subdir): (Vec<(String, String)>, _) = match *typ {
+                    PackageType::Skills => {
+                        let detected =
+                            detect_package_items(&store_path, PackageType::Skills, name)?;
+                        (
+                            filter_items(&detected, spec)?,
+                            adapter.map_dir(*typ, &self.project_root),
+                        )
+                    }
+                    PackageType::Agents => {
+                        let detected =
+                            detect_package_items(&store_path, PackageType::Agents, name)?;
+                        (
+                            filter_items(&detected, spec)?,
+                            adapter.map_dir(*typ, &self.project_root),
+                        )
+                    }
+                    PackageType::Mcp => {
+                        let detected = detect_package_items(&store_path, PackageType::Mcp, name)?;
+                        (
+                            filter_items(&detected, spec)?,
+                            adapter.map_dir(*typ, &self.project_root),
+                        )
+                    }
+                };
+
+                // Remove stale symlinks from a previous install of this package
+                remove_package_symlinks(&target_subdir, &store_path)?;
+
+                if items.is_empty() && !matches!(spec, DependencySpec::Simple(_)) {
+                    println!("  (no items matched pick/omit filters for {})", name);
+                }
+
+                for (item_name, item_glob) in &items {
+                    let link_name = symlink_name(item_name, &[]);
+                    let store_item_path = if item_glob == "." {
+                        store_path.to_path_buf()
+                    } else {
+                        store_path.join(item_glob)
+                    };
+                    let install_source: &Path = if item_glob == "." {
+                        &store_item_path
+                    } else {
+                        match *typ {
+                            PackageType::Skills => {
+                                store_item_path.parent().unwrap_or(&store_item_path)
+                            }
+                            PackageType::Agents | PackageType::Mcp => &store_item_path,
+                        }
+                    };
+                    if store_item_path.exists() {
+                        adapter.install(install_source, &target_subdir, &link_name)?;
+                        println!(
+                            "  ✓ {}: {} → .{}/{}/{}",
+                            typ_label(*typ),
+                            item_name,
+                            self.target,
+                            typ_subdir(*typ),
+                            link_name
+                        );
+                    }
+                }
 
                 installed_packages.push((name.clone(), lock_version, resolution));
             }
@@ -460,22 +575,4 @@ fn extract_tarball(tarball_path: &Path, dest: &Path) -> Result<()> {
     let mut archive = tar::Archive::new(decoder);
     archive.unpack(dest)?;
     Ok(())
-}
-
-/// Extract skill/agent name from a glob path (e.g., ".claude/skills/interview/SKILL.md" → "interview")
-fn extract_skill_name(glob: &str) -> String {
-    let parts: Vec<&str> = glob.split('/').collect();
-    // Find the part after "skills" or "agents"
-    for (i, part) in parts.iter().enumerate() {
-        if (*part == "skills" || *part == "agents") && i + 1 < parts.len() {
-            return parts[i + 1].to_string();
-        }
-    }
-    // fallback: use the last meaningful directory name
-    parts
-        .iter()
-        .rev()
-        .find(|p| !p.ends_with(".md") && **p != "SKILL.md")
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "unknown".into())
 }
