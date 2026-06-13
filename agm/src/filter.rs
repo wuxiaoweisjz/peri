@@ -64,11 +64,12 @@ fn resolve_scan_roots(repo_root: &Path, base: Option<&str>) -> Result<Vec<std::p
     };
 
     let full_pattern = repo_root.join(pattern);
-    let entries =
-        glob::glob(&full_pattern.to_string_lossy()).map_err(|e| AgmError::InvalidGlobPattern {
-            pattern: pattern.into(),
-            reason: e.to_string(),
-        })?;
+    // glob patterns must use '/' as the separator even on Windows.
+    let pattern_str = full_pattern.to_string_lossy().replace('\\', "/");
+    let entries = glob::glob(&pattern_str).map_err(|e| AgmError::InvalidGlobPattern {
+        pattern: pattern.into(),
+        reason: e.to_string(),
+    })?;
 
     let roots: Vec<_> = entries
         .filter_map(|e| e.ok())
