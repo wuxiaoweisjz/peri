@@ -198,7 +198,7 @@ fn find_skills_recursive(base_dir: &Path, repo_root: &Path) -> Vec<(String, Stri
         if skill_md.exists() {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
             let rel = skill_md.strip_prefix(repo_root).unwrap_or(&skill_md);
-            let glob = rel.to_string_lossy().to_string();
+            let glob = rel.to_string_lossy().replace('\\', "/");
             tracing::info!("auto-detected skill: {} ({})", name, glob);
             result.push((name, glob));
         } else {
