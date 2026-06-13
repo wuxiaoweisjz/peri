@@ -74,6 +74,15 @@ impl InstallContext {
         let head_commit = git::resolve_head(repo_url)?;
         let store_path = self.store.git_package_path(repo_url, &head_commit);
 
+        // Resolve optional discovery base from the manifest dependency spec.
+        let base = self
+            .manifest
+            .skills
+            .get(&pkg_name)
+            .or_else(|| self.manifest.agents.get(&pkg_name))
+            .or_else(|| self.manifest.mcp.get(&pkg_name))
+            .and_then(|spec| spec.base());
+
         let (skills, agents, mcp, store_path, actual_commit, resolution) = if store_path.exists() {
             println!("  (already in store, skipping clone)");
             let pkg_manifest_path = store_path.join("agm.package.json");
@@ -105,7 +114,7 @@ impl InstallContext {
                     .collect();
                 (skills, agents, mcp)
             } else {
-                let (skills, agents, _) = auto_detect_types(&store_path);
+                let (skills, agents, _) = auto_detect_types(&store_path, base)?;
                 (skills, agents, Vec::new())
             };
             let resolution = Resolution::Git {
@@ -162,7 +171,7 @@ impl InstallContext {
                     .collect();
                 (skills, agents, mcp)
             } else {
-                let (skills, agents, _) = auto_detect_types(temp_dir.path());
+                let (skills, agents, _) = auto_detect_types(temp_dir.path(), base)?;
                 (skills, agents, Vec::new())
             };
 
@@ -454,23 +463,32 @@ impl InstallContext {
                 // Detect and filter items
                 let (items, target_subdir): (Vec<(String, String)>, _) = match *typ {
                     PackageType::Skills => {
-                        let detected =
-                            detect_package_items(&store_path, PackageType::Skills, name)?;
+                        let detected = detect_package_items(
+                            &store_path,
+                            PackageType::Skills,
+                            name,
+                            spec.base(),
+                        )?;
                         (
                             filter_items(&detected, spec)?,
                             adapter.map_dir(*typ, &self.project_root),
                         )
                     }
                     PackageType::Agents => {
-                        let detected =
-                            detect_package_items(&store_path, PackageType::Agents, name)?;
+                        let detected = detect_package_items(
+                            &store_path,
+                            PackageType::Agents,
+                            name,
+                            spec.base(),
+                        )?;
                         (
                             filter_items(&detected, spec)?,
                             adapter.map_dir(*typ, &self.project_root),
                         )
                     }
                     PackageType::Mcp => {
-                        let detected = detect_package_items(&store_path, PackageType::Mcp, name)?;
+                        let detected =
+                            detect_package_items(&store_path, PackageType::Mcp, name, spec.base())?;
                         (
                             filter_items(&detected, spec)?,
                             adapter.map_dir(*typ, &self.project_root),

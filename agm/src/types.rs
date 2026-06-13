@@ -4,13 +4,18 @@ use std::path::Path;
 
 use crate::error::Result;
 
-/// Dependency declaration: either a plain version string or a detailed object with pick/omit filters.
+/// Dependency declaration: either a plain version string or a detailed object with pick/omit/base filters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DependencySpec {
     Simple(String),
     Detailed {
         version: String,
+        /// Optional base directory inside the package root where discovery should start.
+        /// Paths are relative to the package root and affect discovery only; pick/omit still
+        /// operate on the detected glob paths relative to the package root.
+        #[serde(default)]
+        base: Option<String>,
         #[serde(default)]
         pick: Vec<String>,
         #[serde(default)]
@@ -23,6 +28,13 @@ impl DependencySpec {
         match self {
             DependencySpec::Simple(v) => v,
             DependencySpec::Detailed { version, .. } => version,
+        }
+    }
+
+    pub fn base(&self) -> Option<&str> {
+        match self {
+            DependencySpec::Simple(_) => None,
+            DependencySpec::Detailed { base, .. } => base.as_deref(),
         }
     }
 }

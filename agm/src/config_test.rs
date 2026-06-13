@@ -31,6 +31,7 @@ fn test_dependency_spec_simple_roundtrip() {
 fn test_dependency_spec_detailed_roundtrip() {
     let spec = DependencySpec::Detailed {
         version: "^1.0.0".into(),
+        base: None,
         pick: vec!["grill-*".into()],
         omit: vec!["**/*-test".into()],
     };
@@ -53,6 +54,7 @@ fn test_project_manifest_mixed_deps() {
         "some-pkg".into(),
         DependencySpec::Detailed {
             version: "^1.0.0".into(),
+            base: None,
             pick: vec!["interview".into()],
             omit: vec![],
         },

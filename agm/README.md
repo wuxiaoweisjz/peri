@@ -68,6 +68,11 @@ agm.lock.json     # Lock file — exact versions resolved
       "version": "abc1234...",
       "pick": ["grill-*", "interview"],
       "omit": ["**/*-test"]
+    },
+    "@git/peakdong68/toolkit-agent-skills": {
+      "version": "abc1234...",
+      "base": "plugins/kit-core",
+      "pick": ["autonomous-loop"]
     }
   },
   "agents": {},
@@ -100,6 +105,38 @@ Example: install only `grill-*` and `interview`, but exclude anything ending in 
 ```
 
 Re-running `agm install` after changing `pick`/`omit` will remove stale symlinks and create new ones to match the updated filters.
+
+### Base path
+
+By default agm discovers skills/agents under `.claude/skills/`, `.claude/agents/`, `skills/`, and `agents/` relative to the package root. If a repository places them deeper — for example `plugins/kit-core/skills/autonomous-loop/SKILL.md` — use `base` to tell agm where to start discovery:
+
+```json
+{
+  "skills": {
+    "@git/peakdong68/toolkit-agent-skills": {
+      "version": "abc1234...",
+      "base": "plugins/kit-core",
+      "pick": ["autonomous-loop"]
+    }
+  }
+}
+```
+
+`base` can also be a glob pattern to scan multiple directories at once:
+
+```json
+{
+  "skills": {
+    "@git/peakdong68/toolkit-agent-skills": {
+      "version": "abc1234...",
+      "base": "plugins/*",
+      "pick": ["autonomous-loop", "extra-skill"]
+    }
+  }
+}
+```
+
+`base` is relative to the package root and only affects auto-discovery. It is ignored when the package has an explicit `agm.package.json` manifest. `pick` and `omit` still match against the detected glob paths relative to the package root.
 
 ## Supported Tools
 

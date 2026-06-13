@@ -54,54 +54,96 @@ pub type DetectedTypes = (
     Vec<(String, String)>,
 );
 
+/// Resolve the scan-root directories from an optional base glob pattern.
+///
+/// `base` is relative to `repo_root` and may contain glob wildcards (e.g.
+/// `plugins/*`, `plugins/kit-core`). When omitted, the repo root itself is used.
+fn resolve_scan_roots(repo_root: &Path, base: Option<&str>) -> Result<Vec<std::path::PathBuf>> {
+    let Some(pattern) = base else {
+        return Ok(vec![repo_root.to_path_buf()]);
+    };
+
+    let full_pattern = repo_root.join(pattern);
+    let entries =
+        glob::glob(&full_pattern.to_string_lossy()).map_err(|e| AgmError::InvalidGlobPattern {
+            pattern: pattern.into(),
+            reason: e.to_string(),
+        })?;
+
+    let roots: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .filter(|p| p.is_dir())
+        .collect();
+
+    Ok(roots)
+}
+
 /// Auto-detect skills, agents, and mcp in a repo (when no agm.package.json)
-/// Returns (name, glob) pairs, glob is relative path in repo_root
-pub fn auto_detect_types(repo_root: &Path) -> DetectedTypes {
+/// Returns (name, glob) pairs, glob is relative path in repo_root.
+///
+/// `base` is an optional directory or glob pattern relative to repo_root where discovery
+/// should start. It only affects auto-discovery; explicit agm.package.json exports ignore it.
+pub fn auto_detect_types(repo_root: &Path, base: Option<&str>) -> Result<DetectedTypes> {
+    let scan_roots = resolve_scan_roots(repo_root, base)?;
+
     let mut skills: Vec<(String, String)> = Vec::new();
     let mut agents: Vec<(String, String)> = Vec::new();
 
-    // Detect .{tool}/skills/**/SKILL.md (supports nested categories via recursion)
-    for tool_prefix in &[".claude", ""] {
-        let skills_dir = if tool_prefix.is_empty() {
-            repo_root.join("skills")
-        } else {
-            repo_root.join(tool_prefix).join("skills")
-        };
-        skills.extend(find_skills_recursive(&skills_dir, repo_root));
+    for scan_root in &scan_roots {
+        // Detect .{tool}/skills/**/SKILL.md (supports nested categories via recursion)
+        for tool_prefix in &[".claude", ""] {
+            let skills_dir = if tool_prefix.is_empty() {
+                scan_root.join("skills")
+            } else {
+                scan_root.join(tool_prefix).join("skills")
+            };
+            skills.extend(find_skills_recursive(&skills_dir, repo_root));
 
-        // Detect .{tool}/agents/*.md
-        let agents_dir = if tool_prefix.is_empty() {
-            repo_root.join("agents")
-        } else {
-            repo_root.join(tool_prefix).join("agents")
-        };
-        if let Ok(entries) = std::fs::read_dir(&agents_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().is_some_and(|e| e == "md") {
-                    let name = path.file_stem().unwrap().to_string_lossy().to_string();
-                    let prefix = if tool_prefix.is_empty() {
-                        "agents".to_string()
-                    } else {
-                        format!("{}/agents", tool_prefix)
-                    };
-                    let glob = format!("{}/{}.md", prefix, name);
-                    tracing::info!("auto-detected agent: {} ({})", name, glob);
-                    agents.push((name, glob));
+            // Detect .{tool}/agents/*.md
+            let agents_dir = if tool_prefix.is_empty() {
+                scan_root.join("agents")
+            } else {
+                scan_root.join(tool_prefix).join("agents")
+            };
+            if let Ok(entries) = std::fs::read_dir(&agents_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().is_some_and(|e| e == "md") {
+                        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+                        let prefix_components: Vec<_> = path
+                            .strip_prefix(repo_root)
+                            .unwrap_or(&path)
+                            .parent()
+                            .unwrap_or(Path::new(""))
+                            .iter()
+                            .map(|c| c.to_string_lossy().to_string())
+                            .collect();
+                        let glob = if prefix_components.is_empty() {
+                            format!("agents/{}.md", name)
+                        } else {
+                            format!("{}/agents/{}.md", prefix_components.join("/"), name)
+                        };
+                        tracing::info!("auto-detected agent: {} ({})", name, glob);
+                        agents.push((name, glob));
+                    }
                 }
             }
         }
     }
 
-    (skills, agents, Vec::new())
+    Ok((skills, agents, Vec::new()))
 }
 
 /// Detect the items exported by a package in the store for a given package type.
 /// Returns (name, glob) pairs, where glob is relative to the store path.
+///
+/// `base` is an optional directory relative to the package root where auto-discovery
+/// should start. It is ignored when an explicit `agm.package.json` is present.
 pub fn detect_package_items(
     store_path: &Path,
     typ: PackageType,
     package_name: &str,
+    base: Option<&str>,
 ) -> Result<Vec<(String, String)>> {
     let pkg_manifest_path = store_path.join("agm.package.json");
     if pkg_manifest_path.exists() {
@@ -124,7 +166,7 @@ pub fn detect_package_items(
                 .collect()),
         }
     } else {
-        let (detected_skills, detected_agents, _) = auto_detect_types(store_path);
+        let (detected_skills, detected_agents, _) = auto_detect_types(store_path, base)?;
         let detected = match typ {
             PackageType::Skills => detected_skills,
             PackageType::Agents => detected_agents,

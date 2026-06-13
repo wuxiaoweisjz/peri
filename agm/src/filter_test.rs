@@ -14,6 +14,7 @@ fn test_filter_simple_passes_through() {
 fn test_filter_pick_by_name() {
     let spec = DependencySpec::Detailed {
         version: "abc123".into(),
+        base: None,
         pick: vec!["grill-*".into()],
         omit: vec![],
     };
@@ -30,6 +31,7 @@ fn test_filter_pick_by_name() {
 fn test_filter_omit_by_path() {
     let spec = DependencySpec::Detailed {
         version: "abc123".into(),
+        base: None,
         pick: vec![],
         omit: vec!["skills/test/**".into()],
     };
@@ -46,6 +48,7 @@ fn test_filter_omit_by_path() {
 fn test_filter_pick_and_omit() {
     let spec = DependencySpec::Detailed {
         version: "abc123".into(),
+        base: None,
         pick: vec!["skill-*".into()],
         omit: vec!["skill-test".into()],
     };
@@ -63,6 +66,7 @@ fn test_filter_pick_and_omit() {
 fn test_filter_invalid_glob_errors() {
     let spec = DependencySpec::Detailed {
         version: "abc123".into(),
+        base: None,
         pick: vec!["[invalid".into()],
         omit: vec![],
     };
@@ -89,12 +93,12 @@ fn test_detect_package_items_from_manifest() {
     )
     .unwrap();
 
-    let skills = detect_package_items(store, PackageType::Skills, "pkg").unwrap();
+    let skills = detect_package_items(store, PackageType::Skills, "pkg", None).unwrap();
     assert_eq!(skills.len(), 2);
     assert!(skills.iter().any(|(n, _)| n == "interview"));
     assert!(skills.iter().any(|(n, _)| n == "grill-me"));
 
-    let agents = detect_package_items(store, PackageType::Agents, "pkg").unwrap();
+    let agents = detect_package_items(store, PackageType::Agents, "pkg", None).unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].0, "my-agent.md");
 }
@@ -106,9 +110,77 @@ fn test_detect_package_items_auto_detect_skills() {
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(skill_dir.join("SKILL.md"), "# Foo").unwrap();
 
-    let skills = detect_package_items(tmp.path(), PackageType::Skills, "pkg").unwrap();
+    let skills = detect_package_items(tmp.path(), PackageType::Skills, "pkg", None).unwrap();
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].0, "foo");
+}
+
+#[test]
+fn test_detect_package_items_with_base_path() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let skill_dir = tmp
+        .path()
+        .join("plugins")
+        .join("kit-core")
+        .join("skills")
+        .join("autonomous-loop");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(skill_dir.join("SKILL.md"), "# Autonomous Loop").unwrap();
+
+    // Without base, auto-detection finds nothing; detect_package_items falls back to the
+    // package-as-a-whole entry so the caller can still create a single symlink.
+    let skills = detect_package_items(tmp.path(), PackageType::Skills, "pkg", None).unwrap();
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0].0, "pkg");
+    assert!(
+        skills.iter().all(|(n, _)| n != "autonomous-loop"),
+        "未指定 base 时不应发现深层子目录里的 skill"
+    );
+
+    // With base, discovery finds the nested skill and returns globs relative to repo root.
+    let skills = detect_package_items(
+        tmp.path(),
+        PackageType::Skills,
+        "pkg",
+        Some("plugins/kit-core"),
+    )
+    .unwrap();
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0].0, "autonomous-loop");
+    assert_eq!(
+        skills[0].1,
+        "plugins/kit-core/skills/autonomous-loop/SKILL.md"
+    );
+}
+
+#[test]
+fn test_detect_package_items_with_base_glob() {
+    let tmp = tempfile::TempDir::new().unwrap();
+
+    let core_skill = tmp
+        .path()
+        .join("plugins")
+        .join("kit-core")
+        .join("skills")
+        .join("autonomous-loop");
+    std::fs::create_dir_all(&core_skill).unwrap();
+    std::fs::write(core_skill.join("SKILL.md"), "# Autonomous Loop").unwrap();
+
+    let extra_skill = tmp
+        .path()
+        .join("plugins")
+        .join("kit-extra")
+        .join("skills")
+        .join("extra-skill");
+    std::fs::create_dir_all(&extra_skill).unwrap();
+    std::fs::write(extra_skill.join("SKILL.md"), "# Extra").unwrap();
+
+    // A glob base matches multiple plugin directories.
+    let skills =
+        detect_package_items(tmp.path(), PackageType::Skills, "pkg", Some("plugins/*")).unwrap();
+    assert_eq!(skills.len(), 2);
+    assert!(skills.iter().any(|(n, _)| n == "autonomous-loop"));
+    assert!(skills.iter().any(|(n, _)| n == "extra-skill"));
 }
 
 #[test]

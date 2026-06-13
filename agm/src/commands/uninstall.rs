@@ -74,21 +74,24 @@ pub fn execute(package: &str, target: &str, project_dir: Option<PathBuf>) -> Res
 
     if let (Some(spec), Some(ref store_path)) = (&spec, &store_path) {
         if removed_skills.is_some() {
-            let detected = detect_package_items(store_path, PackageType::Skills, package)?;
+            let detected =
+                detect_package_items(store_path, PackageType::Skills, package, spec.base())?;
             skill_items = filter_items(&detected, spec)?
                 .into_iter()
                 .map(|(name, _)| name)
                 .collect();
         }
         if removed_agents.is_some() {
-            let detected = detect_package_items(store_path, PackageType::Agents, package)?;
+            let detected =
+                detect_package_items(store_path, PackageType::Agents, package, spec.base())?;
             agent_items = filter_items(&detected, spec)?
                 .into_iter()
                 .map(|(name, _)| name)
                 .collect();
         }
         if removed_mcp.is_some() {
-            let detected = detect_package_items(store_path, PackageType::Mcp, package)?;
+            let detected =
+                detect_package_items(store_path, PackageType::Mcp, package, spec.base())?;
             mcp_items = filter_items(&detected, spec)?
                 .into_iter()
                 .map(|(name, _)| name)
