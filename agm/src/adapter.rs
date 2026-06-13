@@ -1,4 +1,5 @@
 use crate::error::Result;
+use crate::fs_util::{paths_equal, remove_symlink_or_dir};
 use crate::resolver::PackageType;
 use std::path::{Path, PathBuf};
 
@@ -28,7 +29,7 @@ pub trait ToolAdapter: Send + Sync {
             if let Ok(meta) = std::fs::symlink_metadata(&link_path) {
                 if meta.file_type().is_symlink() {
                     let existing = std::fs::read_link(&link_path)?;
-                    if existing == store_path {
+                    if paths_equal(&existing, store_path) {
                         return Ok(());
                     }
                 }
@@ -36,11 +37,7 @@ pub trait ToolAdapter: Send + Sync {
         }
 
         if link_path.exists() {
-            if link_path.is_symlink() || link_path.is_file() {
-                std::fs::remove_file(&link_path)?;
-            } else if link_path.is_dir() {
-                std::fs::remove_dir_all(&link_path)?;
-            }
+            remove_symlink_or_dir(&link_path)?;
         }
 
         #[cfg(unix)]
@@ -68,11 +65,7 @@ pub trait ToolAdapter: Send + Sync {
     fn uninstall(&self, target_dir: &Path, pkg_name: &str) -> Result<()> {
         let link_path = target_dir.join(pkg_name);
         if link_path.exists() {
-            if link_path.is_symlink() {
-                std::fs::remove_file(&link_path)?;
-            } else if link_path.is_dir() {
-                std::fs::remove_dir_all(&link_path)?;
-            }
+            remove_symlink_or_dir(&link_path)?;
         }
         Ok(())
     }

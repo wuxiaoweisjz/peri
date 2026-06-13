@@ -2,6 +2,7 @@ use crate::adapter::*;
 use crate::config::AgmConfig;
 use crate::error::{AgmError, Result};
 use crate::filter::{auto_detect_types, detect_package_items, extract_skill_name, filter_items};
+use crate::fs_util::remove_symlink_or_dir;
 use crate::git;
 use crate::registry::RegistryClient;
 use crate::resolver::*;
@@ -340,26 +341,6 @@ pub(crate) fn remove_package_symlinks(target_dir: &Path, store_path: &Path) -> R
                 remove_symlink_or_dir(&path)?;
             }
         }
-    }
-    Ok(())
-}
-
-/// Remove a path that may be a symlink, a regular file, or a directory.
-fn remove_symlink_or_dir(path: &Path) -> Result<()> {
-    if path.is_symlink() {
-        // On Windows directory symlinks must be removed with remove_dir;
-        // on Unix remove_file works for all symlinks.
-        #[cfg(windows)]
-        {
-            if path.is_dir() {
-                return std::fs::remove_dir(path).map_err(Into::into);
-            }
-        }
-        std::fs::remove_file(path)?;
-    } else if path.is_file() {
-        std::fs::remove_file(path)?;
-    } else if path.is_dir() {
-        std::fs::remove_dir_all(path)?;
     }
     Ok(())
 }

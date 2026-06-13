@@ -6,6 +6,7 @@ pub use error::{AgmError, Result};
 
 pub mod adapter;
 pub mod config;
+pub mod fs_util;
 pub mod git;
 pub mod installer;
 pub mod registry;
