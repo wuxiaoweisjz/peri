@@ -67,16 +67,31 @@ impl Store {
     }
 }
 
-/// Convert repo URL to a safe filesystem identifier
+/// Convert repo URL to a safe filesystem identifier.
+///
+/// For remote URLs the full path is sanitized. For local filesystem paths (used in
+/// tests and local workflows) only the last two path components are used so the store
+/// directory name stays short and avoids Windows MAX_PATH issues.
 fn sanitize_repo_id(url: &str) -> String {
-    url.trim_end_matches('/')
+    let clean = url
+        .trim_end_matches('/')
         .trim_end_matches(".git")
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_start_matches("git@")
-        .replace("github.com/", "")
-        .replace(':', "/")
-        .replace(['/', '@'], "_")
+        .replace("github.com/", "");
+
+    let is_local_path = !url.contains("://")
+        && (clean.contains(':') || clean.starts_with('\\') || clean.starts_with('/'));
+
+    if is_local_path {
+        let parts: Vec<&str> = clean.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+        if parts.len() >= 2 {
+            return format!("{}_{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+        }
+    }
+
+    clean.replace(':', "/").replace(['/', '@'], "_")
 }
 
 /// Install a package from a temp directory into the store

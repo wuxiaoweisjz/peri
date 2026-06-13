@@ -78,3 +78,16 @@ fn test_list_packages() {
     let pkgs = store.list_packages().unwrap();
     assert_eq!(pkgs.len(), 2);
 }
+
+#[test]
+fn test_git_package_path_uses_short_id_for_local_path() {
+    let store = Store::new(PathBuf::from("/tmp/agm-store"));
+    let path = store.git_package_path(
+        r"C:\Users\runner\AppData\Local\Temp\.tmpABC123\owner/repo",
+        "abc123def456",
+    );
+    assert_eq!(
+        path,
+        PathBuf::from("/tmp/agm-store/git_owner_repo@abc123def456")
+    );
+}
