@@ -1,6 +1,6 @@
 # PluginManifest.skills 字段不支持字符串格式，导致 supergoal 插件解析失败
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-06-06
 

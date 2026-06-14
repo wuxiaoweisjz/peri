@@ -1,6 +1,6 @@
 # Prompt Suggestion 功能实现完成但端到端无效果
 
-**状态**：Open
+**状态**：Fixed（PredictionReady 新架构）
 **优先级**：中
 **创建日期**：2026-06-10
 

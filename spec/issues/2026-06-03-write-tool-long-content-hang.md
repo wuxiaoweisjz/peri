@@ -1,7 +1,7 @@
 ---
 id: 2026-06-03-write-tool-long-content-hang
 title: Write 工具参数过长时执行卡住无响应
-status: open
+status: fixed
 priority: high
 created: 2026-06-03
 ---

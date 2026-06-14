@@ -1,6 +1,6 @@
 # Read/Write/Edit 工具缺 file_path：LLM 使用了 path 别名
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-06-02
 **类型**：Bug

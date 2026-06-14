@@ -1,6 +1,6 @@
 # PermissionRequest 钩子在 bypass 模式下不应触发
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-06-01
 

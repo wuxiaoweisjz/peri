@@ -1,6 +1,6 @@
 # new_thread() 死锁风险 + session/update_config 状态不一致
 
-**状态**：Open
+**状态**：Fixed
 **优先级**：中
 **创建日期**：2026-05-29
 

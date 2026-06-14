@@ -1,6 +1,6 @@
 # 并发 Background Agent 完成后后续 Prompt 卡死
 
-**状态**：Pending
+**状态**：Fixed
 **优先级**：高
 **创建日期**：2026-06-03
 
