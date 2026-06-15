@@ -48,6 +48,32 @@ pub fn textarea_cursor_pos(textarea: &TextArea, textarea_area: Rect) -> Option<(
     ))
 }
 
+// ─── nanosleep64 stub for WinLibs POSIX compatibility ───────────────────────
+
+#[cfg(target_os = "windows")]
+#[no_mangle]
+extern "C" fn nanosleep64(req: *const libc::timespec, rem: *mut libc::timespec) -> i32 {
+    extern "system" {
+        fn Sleep(dwMilliseconds: u32);
+    }
+    if req.is_null() {
+        return -1;
+    }
+    let r = unsafe { &*req };
+    let ms = (r.tv_sec as u64 * 1000 + r.tv_nsec as u64 / 1_000_000) as u32;
+    let ms = if ms == 0 { 1 } else { ms };
+    unsafe {
+        Sleep(ms);
+    }
+    if !rem.is_null() {
+        unsafe {
+            (*rem).tv_sec = 0;
+            (*rem).tv_nsec = 0;
+        }
+    }
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,30 +126,4 @@ mod tests {
         let pos = textarea_cursor_pos(&ta, Rect::new(3, 5, 80, 24));
         assert_eq!(pos, Some((3, 5 + 23)));
     }
-}
-
-// ─── nanosleep64 stub for WinLibs POSIX compatibility ───────────────────────
-
-#[cfg(target_os = "windows")]
-#[no_mangle]
-extern "C" fn nanosleep64(req: *const libc::timespec, rem: *mut libc::timespec) -> i32 {
-    extern "system" {
-        fn Sleep(dwMilliseconds: u32);
-    }
-    if req.is_null() {
-        return -1;
-    }
-    let r = unsafe { &*req };
-    let ms = (r.tv_sec as u64 * 1000 + r.tv_nsec as u64 / 1_000_000) as u32;
-    let ms = if ms == 0 { 1 } else { ms };
-    unsafe {
-        Sleep(ms);
-    }
-    if !rem.is_null() {
-        unsafe {
-            (*rem).tv_sec = 0;
-            (*rem).tv_nsec = 0;
-        }
-    }
-    0
 }
